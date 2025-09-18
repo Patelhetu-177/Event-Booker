@@ -1,0 +1,97 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  Admin
+  Organizer
+  Customer
+}
+
+enum TicketStatus {
+  Available
+  Booked
+  Cancelled
+}
+
+enum ReservationStatus {
+  Pending
+  Confirmed
+  Cancelled
+}
+
+enum PaymentStatus {
+  Pending
+  Completed
+  Failed
+}
+
+model User {
+  id            String         @id @default(uuid())
+  name          String
+  email         String         @unique
+  password      String
+  role          Role           @default(Customer)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  reservations  Reservation[]
+  refreshTokens RefreshToken[]
+  events        Event[]
+}
+
+model Event {
+  id          String    @id @default(uuid())
+  title       String
+  description String?
+  date        DateTime
+  organizerId String
+  organizer   User      @relation(fields: [organizerId], references: [id])
+  tickets     Ticket[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Ticket {
+  id          String        @id @default(uuid())
+  eventId     String
+  event       Event         @relation(fields: [eventId], references: [id])
+  price       Float
+  status      TicketStatus  @default(Available)
+  createdAt   DateTime      @default(now())
+  reservations Reservation[]
+}
+
+model Reservation {
+  id        String            @id @default(uuid())
+  userId    String
+  user      User              @relation(fields: [userId], references: [id])
+  ticketId  String
+  ticket    Ticket            @relation(fields: [ticketId], references: [id])
+  status    ReservationStatus @default(Pending)
+  createdAt DateTime          @default(now())
+  payment   Payment?
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  reservationId String        @unique
+  reservation   Reservation   @relation(fields: [reservationId], references: [id])
+  amount        Float
+  status        PaymentStatus @default(Pending)
+  createdAt     DateTime      @default(now())
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  tokenHash String   @unique
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+}
