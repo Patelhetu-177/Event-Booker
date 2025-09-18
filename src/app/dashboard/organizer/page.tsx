@@ -72,6 +72,7 @@ export default function OrganizerDashboardPage() {
       
       if (response.ok) {
         const data = await response.json();
+        console.log("Organizer dashboard data:", data.data);
         setReportData(data.data);
         setError(null);
       } else {
@@ -157,7 +158,7 @@ export default function OrganizerDashboardPage() {
           <div className="flex items-center justify-center py-8">
             <p>Loading dashboard data...</p>
           </div>
-        ) : reportData ? (
+        ) : reportData && reportData.events && reportData.recentActivity ? (
           <>
             <div className="grid gap-4 md:grid-cols-4">
               <Card>
@@ -217,7 +218,7 @@ export default function OrganizerDashboardPage() {
                       <CardTitle>My Events</CardTitle>
                       <CardDescription>Your created events</CardDescription>
                     </div>
-                    {reportData.events.length > 0 && (
+                    {reportData.events && reportData.events.length > 0 && (
                       <Button 
                         variant="outline" 
                         size="sm"
@@ -229,7 +230,7 @@ export default function OrganizerDashboardPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  {reportData.events.length === 0 ? (
+                  {!reportData.events || reportData.events.length === 0 ? (
                     <div className="text-center py-6">
                       <Calendar className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                       <h3 className="text-lg font-semibold mb-2">No Events Yet</h3>
@@ -238,7 +239,7 @@ export default function OrganizerDashboardPage() {
                     </div>
                   ) : (
                     <div className="space-y-4">
-                      {reportData.events.slice(0, 5).map((event) => (
+                      {(reportData.events || []).slice(0, 5).map((event) => (
                         <div key={event.id} className="flex items-center justify-between p-3 border rounded">
                           <div>
                             <h3 className="font-semibold">{event.title}</h3>
@@ -266,11 +267,11 @@ export default function OrganizerDashboardPage() {
                   <CardDescription>Latest bookings and payments</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {reportData.recentActivity.length === 0 ? (
+                  {!reportData.recentActivity || reportData.recentActivity.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No recent activity</p>
                   ) : (
                     <div className="space-y-4">
-                      {reportData.recentActivity.slice(0, 5).map((activity) => (
+                      {(reportData.recentActivity || []).slice(0, 5).map((activity) => (
                         <div key={activity.id} className="flex items-center space-x-4">
                           <span className="text-2xl">{getActivityIcon(activity.type)}</span>
                           <div className="flex-1">

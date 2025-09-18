@@ -8,7 +8,10 @@ import { Role, TicketStatus, ReservationStatus } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, User, ArrowLeft, Ticket as TicketIcon, Eye } from "lucide-react";
+import { Calendar, Clock, User, ArrowLeft, Ticket as TicketIcon, Eye, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { getBaseUrl } from "@/lib/client-utils";
 
 interface EventDetail {
@@ -54,6 +57,9 @@ export default function OrganizerEventDetailsPage() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(true);
+  const [showTicketModal, setShowTicketModal] = useState(false);
+  const [ticketPrice, setTicketPrice] = useState<string>("");
+  const [creatingTicket, setCreatingTicket] = useState(false);
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || !hasRole([Role.Admin, Role.Organizer]))) {
@@ -97,17 +103,17 @@ export default function OrganizerEventDetailsPage() {
     const date = new Date(dateString);
     const now = new Date();
     const isUpcoming = date > now;
-    
+
     return {
-      date: date.toLocaleDateString('en-US', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+      date: date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
       }),
-      time: date.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
+      time: date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit'
       }),
       isUpcoming
     };
@@ -121,6 +127,51 @@ export default function OrganizerEventDetailsPage() {
         return <Badge variant="secondary">Cancelled</Badge>;
       default:
         return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const handleCreateTicket = async () => {
+    if (!ticketPrice || parseFloat(ticketPrice) <= 0) {
+      setError("Please enter a valid ticket price");
+      return;
+    }
+
+    try {
+      setCreatingTicket(true);
+      const response = await fetch(`${getBaseUrl()}/api/tickets`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          eventId: id,
+          price: parseFloat(ticketPrice),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.message || "Failed to create ticket");
+        return;
+      }
+
+      setTicketPrice("");
+      setShowTicketModal(false);
+      setError(null);
+
+      if (event) {
+        setEvent({
+          ...event,
+          tickets: [...event.tickets, data.data]
+        });
+      }
+    } catch (err) {
+      console.error("Error creating ticket:", err);
+      setError("An unexpected error occurred while creating the ticket.");
+    } finally {
+      setCreatingTicket(false);
     }
   };
 
@@ -148,9 +199,9 @@ export default function OrganizerEventDetailsPage() {
     return (
       <DashboardLayout>
         <div className="space-y-6">
-          <Button 
-            variant="outline" 
-            onClick={() => router.push("/dashboard/organizer")} 
+          <Button
+            variant="outline"
+            onClick={() => router.push("/dashboard/organizer")}
             className="flex items-center gap-2"
           >
             <ArrowLeft className="h-4 w-4" />
@@ -167,17 +218,17 @@ export default function OrganizerEventDetailsPage() {
   }
 
   const eventDate = formatEventDate(event.date);
-  const availableTickets = event.tickets.filter(ticket => ticket.status === TicketStatus.Available);
-  const totalRevenue = event.reservations
+  const availableTickets = (event.tickets || []).filter(ticket => ticket.status === TicketStatus.Available);
+  const totalRevenue = (event.reservations || [])
     .filter(res => res.payment?.status === "Completed")
     .reduce((sum, res) => sum + (res.payment?.amount || 0), 0);
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <Button 
-          variant="outline" 
-          onClick={() => router.push("/dashboard/organizer")} 
+        <Button
+          variant="outline"
+          onClick={() => router.push("/dashboard/organizer")}
           className="flex items-center gap-2"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -205,7 +256,7 @@ export default function OrganizerEventDetailsPage() {
                 <p className="text-muted-foreground leading-relaxed">
                   {event.description || "No description available for this event."}
                 </p>
-                
+
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -221,11 +272,58 @@ export default function OrganizerEventDetailsPage() {
 
             <Card>
               <CardHeader>
+                <CardTitle>Event Tickets</CardTitle>
+                <CardDescription>All tickets available for this event</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {event.tickets.length === 0 ? (
+                  <div className="text-center py-6">
+                    <TicketIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No Tickets Yet</h3>
+                    <p className="text-muted-foreground mb-4">Create tickets for customers to book.</p>
+                    <Button onClick={() => setShowTicketModal(true)}>
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add First Ticket
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {event.tickets.map((ticket, index) => (
+                      <div key={ticket.id} className="flex items-center justify-between p-3 border rounded">
+                        <div>
+                          <p className="font-medium">Ticket #{index + 1}</p>
+                          <p className="text-sm text-muted-foreground">
+                            Created: {new Date(ticket.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="font-medium">${ticket.price.toFixed(2)}</p>
+                          <Badge variant={ticket.status === TicketStatus.Available ? "default" : "secondary"}>
+                            {ticket.status}
+                          </Badge>
+                        </div>
+                      </div>
+                    ))}
+                    <Button
+                      onClick={() => setShowTicketModal(true)}
+                      variant="outline"
+                      className="w-full"
+                    >
+                      <Plus className="h-4 w-4 mr-2" />
+                      Add More Tickets
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
                 <CardTitle>Recent Reservations</CardTitle>
                 <CardDescription>Latest bookings for this event</CardDescription>
               </CardHeader>
               <CardContent>
-                {event.reservations.length === 0 ? (
+                {(!event.reservations || event.reservations.length === 0) ? (
                   <p className="text-sm text-muted-foreground">No reservations yet.</p>
                 ) : (
                   <div className="space-y-4">
@@ -269,7 +367,7 @@ export default function OrganizerEventDetailsPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Reservations</span>
-                  <span className="font-medium">{event.reservations.length}</span>
+                  <span className="font-medium">{(event.reservations || []).length}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Revenue</span>
@@ -290,13 +388,69 @@ export default function OrganizerEventDetailsPage() {
                 <Button className="w-full" variant="outline">
                   Edit Event
                 </Button>
-                <Button className="w-full" variant="outline">
-                  Manage Tickets
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  onClick={() => setShowTicketModal(true)}
+                >
+                  Add Tickets
                 </Button>
               </CardContent>
             </Card>
           </div>
         </div>
+
+        <Dialog open={showTicketModal} onOpenChange={setShowTicketModal}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add New Ticket</DialogTitle>
+              <DialogDescription>
+                Create a new ticket for this event. Customers will be able to reserve and purchase this ticket.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 p-6 pt-0">
+              {error && (
+                <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+                  {error}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="price">Ticket Price ($)</Label>
+                <Input
+                  id="price"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Enter ticket price"
+                  value={ticketPrice}
+                  onChange={(e) => setTicketPrice(e.target.value)}
+                  disabled={creatingTicket}
+                />
+              </div>
+              <div className="flex justify-end space-x-2 pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowTicketModal(false);
+                    setTicketPrice("");
+                    setError(null);
+                  }}
+                  disabled={creatingTicket}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={handleCreateTicket}
+                  disabled={creatingTicket || !ticketPrice}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  {creatingTicket ? "Creating..." : "Create Ticket"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

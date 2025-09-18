@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -17,13 +17,22 @@ const createEventSchema = z.object({
 
 type CreateEventFormData = z.infer<typeof createEventSchema>;
 
+interface Event {
+  id: string;
+  title: string;
+  description?: string;
+  date: string;
+}
+
 interface CreateEventModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onEventCreated: () => void;
+  editingEvent?: Event | null;
+  onEventUpdated?: (data: { title: string; description: string; date: string }) => Promise<void> | void;
 }
 
-export default function CreateEventModal({ open, onOpenChange, onEventCreated }: CreateEventModalProps) {
+export default function CreateEventModal({ open, onOpenChange, onEventCreated, editingEvent, onEventUpdated }: CreateEventModalProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,37 +41,55 @@ export default function CreateEventModal({ open, onOpenChange, onEventCreated }:
     handleSubmit,
     formState: { errors },
     reset,
+    setValue,
   } = useForm<CreateEventFormData>({
     resolver: zodResolver(createEventSchema),
   });
+
+  useEffect(() => {
+    if (editingEvent) {
+      setValue("title", editingEvent.title);
+      setValue("description", editingEvent.description || "");
+      setValue("date", new Date(editingEvent.date).toISOString().slice(0, 16));
+    } else {
+      reset();
+    }
+  }, [editingEvent, setValue, reset]);
 
   const onSubmit = async (data: CreateEventFormData) => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const token = localStorage.getItem("accessToken");
-      const response = await fetch("/api/events", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      if (editingEvent && onEventUpdated) {
+        await onEventUpdated({
           ...data,
           date: new Date(data.date).toISOString(),
-        }),
-      });
+        });
+      } else {
+        const token = localStorage.getItem("accessToken");
+        const response = await fetch("/api/events", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            ...data,
+            date: new Date(data.date).toISOString(),
+          }),
+        });
 
-      const result = await response.json();
+        const result = await response.json();
 
-      if (!response.ok) {
-        throw new Error(result.message || "Failed to create event");
+        if (!response.ok) {
+          throw new Error(result.message || "Failed to create event");
+        }
+
+        onEventCreated();
       }
-
-      // Success
+      
       reset();
-      onEventCreated();
       onOpenChange(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "An error occurred");
@@ -84,9 +111,9 @@ export default function CreateEventModal({ open, onOpenChange, onEventCreated }:
       <DialogContent>
         <DialogClose onClose={handleClose} />
         <DialogHeader>
-          <DialogTitle>Create New Event</DialogTitle>
+          <DialogTitle>{editingEvent ? "Edit Event" : "Create New Event"}</DialogTitle>
           <DialogDescription>
-            Create a new event for users to book and attend.
+            {editingEvent ? "Update the event details below." : "Create a new event for users to book and attend."}
           </DialogDescription>
         </DialogHeader>
 
@@ -149,7 +176,7 @@ export default function CreateEventModal({ open, onOpenChange, onEventCreated }:
               Cancel
             </Button>
             <Button type="submit" disabled={isLoading}>
-              {isLoading ? "Creating..." : "Create Event"}
+              {isLoading ? (editingEvent ? "Updating..." : "Creating...") : (editingEvent ? "Update Event" : "Create Event")}
             </Button>
           </div>
         </form>

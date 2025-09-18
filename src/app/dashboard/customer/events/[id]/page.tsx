@@ -26,8 +26,12 @@ interface Ticket {
   status: TicketStatus;
 }
 
-export default function EventDetailsPage({ params }: { params: { id: string } }) {
-  const { id } = params;
+export default function EventDetailsPage({ params }: { params: Promise<{ id: string }> }) {
+  const [id, setId] = useState<string>("");
+  
+  useEffect(() => {
+    params.then(p => setId(p.id));
+  }, [params]);
   const { user, loading, isAuthenticated, hasRole, accessToken } = useAuth();
   const router = useRouter();
   const [event, setEvent] = useState<EventDetail | null>(null);

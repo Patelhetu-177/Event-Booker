@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from "react";
@@ -28,6 +29,13 @@ interface Event {
   };
 }
 
+// Payload for updating an event
+type UpdateEventPayload = {
+  title: string;
+  description?: string;
+  date: string; // ISO string
+};
+
 export default function OrganizerEventsPage() {
   const { user, loading, isAuthenticated, hasRole } = useAuth();
   const router = useRouter();
@@ -35,6 +43,8 @@ export default function OrganizerEventsPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || !hasRole([Role.Admin, Role.Organizer]))) {
@@ -52,7 +62,7 @@ export default function OrganizerEventsPage() {
       
       if (response.ok) {
         const data = await response.json();
-        setEvents(data.data.events);
+        setEvents(data.data?.events || []);
         setError(null);
       } else {
         const errorData = await response.json();
@@ -63,6 +73,60 @@ export default function OrganizerEventsPage() {
       setError("An error occurred while fetching events");
     } finally {
       setLoadingData(false);
+    }
+  };
+
+  const handleDeleteEvent = async (eventId: string) => {
+    if (!confirm("Are you sure you want to delete this event? This action cannot be undone.")) {
+      return;
+    }
+
+    try {
+      setDeletingEventId(eventId);
+      const token = localStorage.getItem("accessToken");
+      const response = await fetch(`${getBaseUrl()}/api/events/${eventId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (response.ok) {
+        setEvents((prevEvents) => prevEvents.filter(event => event.id !== eventId));
+        setError(null);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || "Failed to delete event");
+      }
+    } catch (err) {
+      console.error("Error deleting event:", err);
+      setError("An error occurred while deleting the event");
+    } finally {
+      setDeletingEventId(null);
+    }
+  };
+
+  const handleUpdateEvent = async (eventData: UpdateEventPayload) => {
+    try {
+      const token = localStorage.getItem("accessToken");
+      const response = await fetch(`${getBaseUrl()}/api/events/${editingEvent?.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(eventData),
+      });
+
+      if (response.ok) {
+        fetchEvents();
+        setEditingEvent(null);
+        setError(null);
+      } else {
+        const errorData = await response.json();
+        setError(errorData.message || "Failed to update event");
+      }
+    } catch (err) {
+      console.error("Error updating event:", err);
+      setError("An error occurred while updating the event");
     }
   };
 
@@ -197,10 +261,19 @@ export default function OrganizerEventsPage() {
                           <Eye className="h-4 w-4 mr-1" />
                           View
                         </Button>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => setEditingEvent(event)}
+                        >
                           <Edit className="h-4 w-4" />
                         </Button>
-                        <Button variant="outline" size="sm">
+                        <Button 
+                          variant="outline" 
+                          size="sm"
+                          onClick={() => handleDeleteEvent(event.id)}
+                          disabled={deletingEventId === event.id}
+                        >
                           <Trash2 className="h-4 w-4" />
                         </Button>
                       </div>
@@ -216,6 +289,14 @@ export default function OrganizerEventsPage() {
           open={createModalOpen}
           onOpenChange={setCreateModalOpen}
           onEventCreated={fetchEvents}
+        />
+        
+        <CreateEventModal
+          open={!!editingEvent}
+          onOpenChange={(open) => !open && setEditingEvent(null)}
+          onEventCreated={fetchEvents}
+          editingEvent={editingEvent}
+          onEventUpdated={handleUpdateEvent}
         />
       </div>
     </DashboardLayout>

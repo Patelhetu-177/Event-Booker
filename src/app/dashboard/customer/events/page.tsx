@@ -69,7 +69,7 @@ export default function CustomerEventsPage() {
   }, [isAuthenticated, accessToken]);
 
   useEffect(() => {
-    let filtered = events;
+    let filtered = events || [];
 
     if (searchTerm) {
       filtered = filtered.filter(event =>

@@ -60,7 +60,7 @@ export default function CustomerReservationsPage() {
         setError(data.message || "Failed to fetch reservations");
         return;
       }
-      setReservations(data.data);
+      setReservations(data.data || []);
     } catch (err) {
       console.error("Error fetching reservations:", err);
       setError("An unexpected error occurred while fetching reservations.");
