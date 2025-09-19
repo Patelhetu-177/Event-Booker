@@ -54,6 +54,8 @@ interface ToastContextType {
 
 const ToastContext = React.createContext<ToastContextType | undefined>(undefined)
 
+export { ToastContext }
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = React.useState<ToastProps[]>([])
 
@@ -84,4 +86,20 @@ export function useToast() {
     throw new Error("useToast must be used within a ToastProvider")
   }
   return context
+}
+
+export function toast(props: Omit<ToastProps, "id" | "onClose">) {
+  const id = Math.random().toString(36).substring(2, 9)
+  const event = new CustomEvent('show-toast', {
+    detail: { id, ...props }
+  })
+  window.dispatchEvent(event)
+  
+  return {
+    id,
+    dismiss: () => {
+      const dismissEvent = new CustomEvent('dismiss-toast', { detail: { id } })
+      window.dispatchEvent(dismissEvent)
+    }
+  }
 }

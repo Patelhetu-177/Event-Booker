@@ -6,6 +6,7 @@ import DashboardLayout from "@/components/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import CreateUserModal from "@/components/CreateUserModal";
+import EditUserModal from "@/components/EditUserModal";
 
 interface User {
   id: string;
@@ -20,6 +21,7 @@ export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
 
   const fetchUsers = async () => {
     try {
@@ -138,11 +140,12 @@ export default function AdminUsersPage() {
                       <strong>Joined:</strong> {new Date(userData.createdAt).toLocaleDateString()}
                     </p>
                     <div className="flex gap-2">
-                      <Button variant="outline" size="sm">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => setEditingUser(userData)}
+                      >
                         Edit
-                      </Button>
-                      <Button variant="outline" size="sm">
-                        Change Role
                       </Button>
                       <Button 
                         variant="destructive" 
@@ -164,6 +167,16 @@ export default function AdminUsersPage() {
         open={createModalOpen}
         onOpenChange={setCreateModalOpen}
         onUserCreated={fetchUsers}
+      />
+      
+      <EditUserModal
+        open={!!editingUser}
+        onOpenChange={(open) => !open && setEditingUser(null)}
+        user={editingUser}
+        onUserUpdated={() => {
+          fetchUsers();
+          setEditingUser(null);
+        }}
       />
     </DashboardLayout>
   );

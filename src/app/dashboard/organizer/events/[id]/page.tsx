@@ -8,7 +8,7 @@ import { Role, TicketStatus, ReservationStatus } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, User, ArrowLeft, Ticket as TicketIcon, Eye, Plus } from "lucide-react";
+import { Calendar, Clock, User, ArrowLeft, Ticket as TicketIcon, Plus } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,7 +58,9 @@ export default function OrganizerEventDetailsPage() {
   const [error, setError] = useState<string | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [showTicketModal, setShowTicketModal] = useState(false);
-  const [ticketPrice, setTicketPrice] = useState<string>("");
+  const [ticketTiers, setTicketTiers] = useState<Array<{ price: string; count: string }>>([
+    { price: "", count: "1" },
+  ]);
   const [creatingTicket, setCreatingTicket] = useState(false);
 
   useEffect(() => {
@@ -131,10 +133,24 @@ export default function OrganizerEventDetailsPage() {
   };
 
   const handleCreateTicket = async () => {
-    if (!ticketPrice || parseFloat(ticketPrice) <= 0) {
-      setError("Please enter a valid ticket price");
-      return;
+    // Validate tiers
+    const parsed = ticketTiers.map((t, idx) => {
+      const priceNum = parseFloat(t.price);
+      const countNum = parseInt(t.count, 10);
+      return { idx, priceNum, countNum, raw: t };
+    });
+    for (const p of parsed) {
+      if (!p.raw.price || isNaN(p.priceNum) || p.priceNum <= 0) {
+        setError(`Please enter a valid price for row ${p.idx + 1}`);
+        return;
+      }
+      if (!p.raw.count || isNaN(p.countNum) || p.countNum <= 0) {
+        setError(`Please enter a valid quantity (1 or more) for row ${p.idx + 1}`);
+        return;
+      }
     }
+
+    const ticketsPayload = parsed.map((p) => ({ price: p.priceNum, count: p.countNum }));
 
     try {
       setCreatingTicket(true);
@@ -146,30 +162,35 @@ export default function OrganizerEventDetailsPage() {
         },
         body: JSON.stringify({
           eventId: id,
-          price: parseFloat(ticketPrice),
+          tickets: ticketsPayload,
         }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.message || "Failed to create ticket");
+        setError(data.message || "Failed to create tickets");
         return;
       }
 
-      setTicketPrice("");
+      try {
+        const evRes = await fetch(`${getBaseUrl()}/api/events/${id}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        const evData = await evRes.json();
+        if (evRes.ok) {
+          setEvent(evData.data);
+        }
+      } catch (e) {
+        console.log(e)
+      }
+
+      setTicketTiers([{ price: "", count: "1" }]);
       setShowTicketModal(false);
       setError(null);
-
-      if (event) {
-        setEvent({
-          ...event,
-          tickets: [...event.tickets, data.data]
-        });
-      }
     } catch (err) {
-      console.error("Error creating ticket:", err);
-      setError("An unexpected error occurred while creating the ticket.");
+      console.error("Error creating tickets:", err);
+      setError("An unexpected error occurred while creating tickets.");
     } finally {
       setCreatingTicket(false);
     }
@@ -225,18 +246,19 @@ export default function OrganizerEventDetailsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
+      <div className="space-y-4 sm:space-y-6 px-2 sm:px-0">
         <Button
           variant="outline"
           onClick={() => router.push("/dashboard/organizer")}
-          className="flex items-center gap-2"
+          className="flex items-center gap-2 text-sm sm:text-base w-full sm:w-auto justify-center sm:justify-start"
+          size="sm"
         >
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
           Back to Dashboard
         </Button>
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-2 space-y-6">
+        <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
+          <div className="lg:col-span-2 space-y-4 sm:space-y-6">
             <Card>
               <CardHeader>
                 <div className="flex items-start justify-between">
@@ -252,18 +274,18 @@ export default function OrganizerEventDetailsPage() {
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-muted-foreground leading-relaxed">
+              <CardContent className="space-y-4 p-4 sm:p-6 pt-0">
+                <p className="text-muted-foreground leading-relaxed text-sm sm:text-base">
                   {event.description || "No description available for this event."}
                 </p>
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{eventDate.date}</span>
+                    <Calendar className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+                    <span className="text-sm truncate">{eventDate.date}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-muted-foreground" />
+                    <Clock className="h-4 w-4 text-muted-foreground flex-shrink-0" />
                     <span className="text-sm">{eventDate.time}</span>
                   </div>
                 </div>
@@ -290,15 +312,18 @@ export default function OrganizerEventDetailsPage() {
                   <div className="space-y-3">
                     {event.tickets.map((ticket, index) => (
                       <div key={ticket.id} className="flex items-center justify-between p-3 border rounded">
-                        <div>
-                          <p className="font-medium">Ticket #{index + 1}</p>
-                          <p className="text-sm text-muted-foreground">
-                            Created: {new Date(ticket.createdAt).toLocaleDateString()}
+                        <div className="min-w-0">
+                          <p className="font-medium text-sm sm:text-base truncate">Ticket #{index + 1}</p>
+                          <p className="text-xs sm:text-sm text-muted-foreground">
+                            {new Date(ticket.createdAt).toLocaleDateString()}
                           </p>
                         </div>
-                        <div className="text-right">
-                          <p className="font-medium">${ticket.price.toFixed(2)}</p>
-                          <Badge variant={ticket.status === TicketStatus.Available ? "default" : "secondary"}>
+                        <div className="text-right ml-2">
+                          <p className="font-medium text-sm sm:text-base">${ticket.price.toFixed(2)}</p>
+                          <Badge 
+                            variant={ticket.status === TicketStatus.Available ? "default" : "secondary"}
+                            className="text-xs"
+                          >
                             {ticket.status}
                           </Badge>
                         </div>
@@ -307,9 +332,10 @@ export default function OrganizerEventDetailsPage() {
                     <Button
                       onClick={() => setShowTicketModal(true)}
                       variant="outline"
-                      className="w-full"
+                      className="w-full text-sm sm:text-base"
+                      size="sm"
                     >
-                      <Plus className="h-4 w-4 mr-2" />
+                      <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" />
                       Add More Tickets
                     </Button>
                   </div>
@@ -326,19 +352,21 @@ export default function OrganizerEventDetailsPage() {
                 {(!event.reservations || event.reservations.length === 0) ? (
                   <p className="text-sm text-muted-foreground">No reservations yet.</p>
                 ) : (
-                  <div className="space-y-4">
-                    {event.reservations.slice(0, 10).map((reservation) => (
-                      <div key={reservation.id} className="flex items-center justify-between p-3 border rounded">
-                        <div>
-                          <p className="font-medium">{reservation.user.name}</p>
-                          <p className="text-sm text-muted-foreground">{reservation.user.email}</p>
+                  <div className="space-y-3">
+                    {event.reservations.slice(0, 5).map((reservation) => (
+                      <div key={reservation.id} className="flex items-start justify-between p-3 border rounded text-sm">
+                        <div className="min-w-0 pr-2">
+                          <p className="font-medium truncate">{reservation.user.name}</p>
+                          <p className="text-muted-foreground text-xs truncate">{reservation.user.email}</p>
                           <p className="text-xs text-muted-foreground">
                             {new Date(reservation.createdAt).toLocaleDateString()}
                           </p>
                         </div>
-                        <div className="text-right">
+                        <div className="text-right flex-shrink-0 ml-2">
                           <p className="font-medium">${reservation.ticket.price.toFixed(2)}</p>
-                          {getStatusBadge(reservation.status)}
+                          <div className="mt-1">
+                            {getStatusBadge(reservation.status)}
+                          </div>
                         </div>
                       </div>
                     ))}
@@ -348,51 +376,53 @@ export default function OrganizerEventDetailsPage() {
             </Card>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-4 sm:space-y-6">
             <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <TicketIcon className="h-5 w-5" />
-                  Event Statistics
+              <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-6">
+                <CardTitle className="flex items-center gap-2 text-lg sm:text-xl">
+                  <TicketIcon className="h-4 w-4 sm:h-5 sm:w-5" />
+                  Event Stats
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Total Tickets</span>
+              <CardContent className="p-4 sm:p-6 pt-0 space-y-3 sm:space-y-4 text-sm sm:text-base">
+                <div className="flex items-center justify-between py-2 border-b">
+                  <span className="text-muted-foreground">Total Tickets</span>
                   <span className="font-medium">{event.tickets.length}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Available</span>
+                <div className="flex items-center justify-between py-2 border-b">
+                  <span className="text-muted-foreground">Available</span>
                   <span className="font-medium">{availableTickets.length}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Reservations</span>
+                <div className="flex items-center justify-between py-2 border-b">
+                  <span className="text-muted-foreground">Reservations</span>
                   <span className="font-medium">{(event.reservations || []).length}</span>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground">Revenue</span>
+                <div className="flex items-center justify-between py-2">
+                  <span className="text-muted-foreground">Revenue</span>
                   <span className="font-medium">${totalRevenue.toFixed(2)}</span>
                 </div>
               </CardContent>
             </Card>
 
             <Card>
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
+              <CardHeader className="p-4 sm:p-6 pb-2 sm:pb-6">
+                <CardTitle className="text-lg sm:text-xl">Quick Actions</CardTitle>
               </CardHeader>
-              <CardContent className="space-y-2">
-                <Button className="w-full" variant="outline">
-                  <Eye className="h-4 w-4 mr-2" />
-                  View Public Page
-                </Button>
-                <Button className="w-full" variant="outline">
+              <CardContent className="p-4 sm:p-6 pt-0 space-y-2">
+                <Button 
+                  className="w-full text-sm sm:text-base" 
+                  variant="outline"
+                  size="sm"
+                >
                   Edit Event
                 </Button>
                 <Button
-                  className="w-full"
+                  className="w-full text-sm sm:text-base"
                   variant="outline"
+                  size="sm"
                   onClick={() => setShowTicketModal(true)}
                 >
+                  <Plus className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-1.5" />
                   Add Tickets
                 </Button>
               </CardContent>
@@ -403,7 +433,7 @@ export default function OrganizerEventDetailsPage() {
         <Dialog open={showTicketModal} onOpenChange={setShowTicketModal}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add New Ticket</DialogTitle>
+              <DialogTitle>Add Tickets</DialogTitle>
               <DialogDescription>
                 Create a new ticket for this event. Customers will be able to reserve and purchase this ticket.
               </DialogDescription>
@@ -414,18 +444,69 @@ export default function OrganizerEventDetailsPage() {
                   {error}
                 </div>
               )}
-              <div className="space-y-2">
-                <Label htmlFor="price">Ticket Price ($)</Label>
-                <Input
-                  id="price"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Enter ticket price"
-                  value={ticketPrice}
-                  onChange={(e) => setTicketPrice(e.target.value)}
-                  disabled={creatingTicket}
-                />
+              <div className="space-y-3">
+                {ticketTiers.map((tier, idx) => (
+                  <div key={idx} className="grid grid-cols-5 gap-2 sm:gap-3 items-end">
+                    <div className="col-span-3 sm:col-span-2 space-y-1 sm:space-y-2">
+                      <Label htmlFor={`price-${idx}`} className="text-xs sm:text-sm">Price ($)</Label>
+                      <Input
+                        id={`price-${idx}`}
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        placeholder="25.00"
+                        value={tier.price}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTicketTiers((prev) => prev.map((t, i) => (i === idx ? { ...t, price: v } : t)));
+                        }}
+                        disabled={creatingTicket}
+                        className="h-9 sm:h-10 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-1 sm:col-span-2 space-y-1 sm:space-y-2">
+                      <Label htmlFor={`count-${idx}`} className="text-xs sm:text-sm">Qty</Label>
+                      <Input
+                        id={`count-${idx}`}
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="50"
+                        value={tier.count}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setTicketTiers((prev) => prev.map((t, i) => (i === idx ? { ...t, count: v } : t)));
+                        }}
+                        disabled={creatingTicket}
+                        className="h-9 sm:h-10 text-sm"
+                      />
+                    </div>
+                    <div className="col-span-1 flex gap-1 sm:gap-2 justify-end">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="h-9 w-9 sm:h-10 sm:w-10"
+                        onClick={() => setTicketTiers((prev) => [...prev, { price: "", count: "1" }])}
+                        disabled={creatingTicket}
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
+                      {ticketTiers.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 sm:h-10 sm:w-10"
+                          onClick={() => setTicketTiers((prev) => prev.filter((_, i) => i !== idx))}
+                          disabled={creatingTicket}
+                        >
+                          <span className="h-4 w-4">−</span>
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
               <div className="flex justify-end space-x-2 pt-4">
                 <Button
@@ -433,7 +514,7 @@ export default function OrganizerEventDetailsPage() {
                   variant="outline"
                   onClick={() => {
                     setShowTicketModal(false);
-                    setTicketPrice("");
+                    setTicketTiers([{ price: "", count: "1" }]);
                     setError(null);
                   }}
                   disabled={creatingTicket}
@@ -442,10 +523,10 @@ export default function OrganizerEventDetailsPage() {
                 </Button>
                 <Button
                   onClick={handleCreateTicket}
-                  disabled={creatingTicket || !ticketPrice}
+                  disabled={creatingTicket || ticketTiers.length === 0}
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  {creatingTicket ? "Creating..." : "Create Ticket"}
+                  {creatingTicket ? "Creating..." : "Create Tickets"}
                 </Button>
               </div>
             </div>

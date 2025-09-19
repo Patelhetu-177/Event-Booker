@@ -9,7 +9,7 @@ import { Role } from "@prisma/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, User, Eye, Edit, Trash2, Plus } from "lucide-react";
+import { Calendar, Clock, User,Plus } from "lucide-react";
 import CreateEventModal from "@/components/CreateEventModal";
 import { getBaseUrl } from "@/lib/client-utils";
 
@@ -29,11 +29,10 @@ interface Event {
   };
 }
 
-// Payload for updating an event
 type UpdateEventPayload = {
   title: string;
   description?: string;
-  date: string; // ISO string
+  date: string; 
 };
 
 export default function OrganizerEventsPage() {
@@ -44,7 +43,6 @@ export default function OrganizerEventsPage() {
   const [loadingData, setLoadingData] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editingEvent, setEditingEvent] = useState<Event | null>(null);
-  const [deletingEventId, setDeletingEventId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || !hasRole([Role.Admin, Role.Organizer]))) {
@@ -73,34 +71,6 @@ export default function OrganizerEventsPage() {
       setError("An error occurred while fetching events");
     } finally {
       setLoadingData(false);
-    }
-  };
-
-  const handleDeleteEvent = async (eventId: string) => {
-    if (!confirm("Are you sure you want to delete this event? This action cannot be undone.")) {
-      return;
-    }
-
-    try {
-      setDeletingEventId(eventId);
-      const token = localStorage.getItem("accessToken");
-      const response = await fetch(`${getBaseUrl()}/api/events/${eventId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (response.ok) {
-        setEvents((prevEvents) => prevEvents.filter(event => event.id !== eventId));
-        setError(null);
-      } else {
-        const errorData = await response.json();
-        setError(errorData.message || "Failed to delete event");
-      }
-    } catch (err) {
-      console.error("Error deleting event:", err);
-      setError("An error occurred while deleting the event");
-    } finally {
-      setDeletingEventId(null);
     }
   };
 
@@ -168,20 +138,20 @@ export default function OrganizerEventsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">My Events</h1>
-            <p className="text-muted-foreground">Manage all your events and track their performance</p>
+      <div className="space-y-4 md:space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <h1 className="text-2xl font-bold sm:text-3xl">My Events</h1>
+            <p className="text-sm text-muted-foreground sm:text-base">Manage all your events and track their performance</p>
           </div>
-          <Button onClick={() => setCreateModalOpen(true)}>
+          <Button onClick={() => setCreateModalOpen(true)} className="w-full sm:w-auto">
             <Plus className="h-4 w-4 mr-2" />
             Create Event
           </Button>
         </div>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded text-sm sm:text-base">
             {error}
           </div>
         )}
@@ -191,92 +161,66 @@ export default function OrganizerEventsPage() {
             <p>Loading events...</p>
           </div>
         ) : events.length === 0 ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <Calendar className="h-12 w-12 text-muted-foreground mb-4" />
-              <h3 className="text-lg font-semibold mb-2">No Events Yet</h3>
-              <p className="text-muted-foreground text-center mb-4">
+          <Card className="shadow-sm">
+            <CardContent className="flex flex-col items-center justify-center p-6 sm:py-12">
+              <Calendar className="h-10 w-10 sm:h-12 sm:w-12 text-muted-foreground mb-3 sm:mb-4" />
+              <h3 className="text-lg font-semibold mb-2 text-center">No Events Yet</h3>
+              <p className="text-muted-foreground text-center mb-4 text-sm sm:text-base max-w-md mx-auto">
                 Create your first event to start managing bookings and selling tickets.
               </p>
-              <Button onClick={() => setCreateModalOpen(true)}>
+              <Button onClick={() => setCreateModalOpen(true)} className="w-full sm:w-auto">
                 Create Your First Event
               </Button>
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {events.map((event) => {
               const eventDate = formatEventDate(event.date);
               return (
-                <Card key={event.id} className="overflow-hidden hover:shadow-lg transition-shadow">
+                <Card key={event.id} className="overflow-hidden hover:shadow-lg transition-shadow h-full flex flex-col">
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <CardTitle className="text-xl mb-2">{event.title}</CardTitle>
-                        <div className="flex items-center text-sm text-muted-foreground mb-2">
-                          <User className="h-4 w-4 mr-1" />
-                          {event.organizer.name}
+                      <div className="flex-1 min-w-0">
+                        <CardTitle className="text-lg sm:text-xl mb-2 truncate">{event.title}</CardTitle>
+                        <div className="flex items-center text-xs sm:text-sm text-muted-foreground mb-2">
+                          <User className="h-3 w-3 sm:h-4 sm:w-4 mr-1 flex-shrink-0" />
+                          <span className="truncate">{event.organizer.name}</span>
                         </div>
                       </div>
-                      <Badge variant={eventDate.isUpcoming ? "default" : "secondary"}>
+                      <Badge variant={eventDate.isUpcoming ? "default" : "secondary"} className="flex-shrink-0 ml-2">
                         {eventDate.isUpcoming ? "Upcoming" : "Past"}
                       </Badge>
                     </div>
                   </CardHeader>
-                  <CardContent className="pt-0">
-                    <div className="space-y-3">
-                      <p className="text-sm text-muted-foreground line-clamp-2">
+                  <CardContent className="pt-0 flex-1 flex flex-col">
+                    <div className="space-y-3 sm:space-y-4 flex-1">
+                      <p className="text-xs sm:text-sm text-muted-foreground line-clamp-2 sm:line-clamp-3">
                         {event.description || "No description available"}
                       </p>
                       
-                      <div className="space-y-2">
-                        <div className="flex items-center text-sm">
-                          <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
-                          <span>{eventDate.date}</span>
+                      <div className="space-y-1.5 sm:space-y-2">
+                        <div className="flex items-center text-xs sm:text-sm">
+                          <Calendar className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-2 text-muted-foreground flex-shrink-0" />
+                          <span className="truncate">{eventDate.date}</span>
                         </div>
-                        <div className="flex items-center text-sm">
-                          <Clock className="h-4 w-4 mr-2 text-muted-foreground" />
+                        <div className="flex items-center text-xs sm:text-sm">
+                          <Clock className="h-3.5 w-3.5 sm:h-4 sm:w-4 mr-2 text-muted-foreground flex-shrink-0" />
                           <span>{eventDate.time}</span>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4 pt-2">
-                        <div className="text-center">
-                          <p className="text-2xl font-bold">{event._count.tickets}</p>
+                      <div className="grid grid-cols-2 gap-2 sm:gap-4 pt-1 sm:pt-2">
+                        <div className="text-center p-2 bg-muted/20 rounded">
+                          <p className="text-xl sm:text-2xl font-bold">{event._count.tickets}</p>
                           <p className="text-xs text-muted-foreground">Tickets</p>
                         </div>
-                        <div className="text-center">
-                          <p className="text-2xl font-bold">{event._count.reservations}</p>
+                        <div className="text-center p-2 bg-muted/20 rounded">
+                          <p className="text-xl sm:text-2xl font-bold">{event._count.reservations}</p>
                           <p className="text-xs text-muted-foreground">Bookings</p>
                         </div>
                       </div>
 
-                      <div className="flex gap-2 pt-4">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          className="flex-1"
-                          onClick={() => router.push(`/dashboard/organizer/events/${event.id}`)}
-                        >
-                          <Eye className="h-4 w-4 mr-1" />
-                          View
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => setEditingEvent(event)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => handleDeleteEvent(event.id)}
-                          disabled={deletingEventId === event.id}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
                     </div>
                   </CardContent>
                 </Card>

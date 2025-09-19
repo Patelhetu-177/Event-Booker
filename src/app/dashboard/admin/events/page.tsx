@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Pencil, Trash2 } from "lucide-react";
 import CreateEventModal from "@/components/CreateEventModal";
+import EditEventModal from "@/components/EditEventModal";
 
 interface Event {
   id: string;
   title: string;
   description: string;
   date: string;
+  location: string;
   organizer: {
     name: string;
     email: string;
@@ -20,32 +24,49 @@ interface Event {
 
 export default function AdminEventsPage() {
   const { user, hasRole } = useAuth();
+  const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
 
-  const fetchEvents = async () => {
+  const fetchEvents = useCallback(async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem("accessToken");
+      const userId = localStorage.getItem("userId");
+      const userRole = localStorage.getItem("userRole");
+      
+      if (!token || !userId || !userRole) {
+        router.push("/login");
+        return;
+      }
+
       const response = await fetch("/api/events", {
         headers: {
-          Authorization: `Bearer ${token}`,
+          'Authorization': `Bearer ${token}`,
+          'x-user-id': userId,
+          'x-user-role': userRole,
+          'Content-Type': 'application/json',
         },
       });
       
       if (response.ok) {
         const data = await response.json();
-        setEvents(data.data);
+        setEvents(data.data || []);
       } else {
-        console.error("Failed to fetch events");
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Failed to fetch events:", errorData.message || 'Unknown error');
+        if (response.status === 401) {
+          router.push("/login");
+        }
       }
     } catch (error) {
       console.error("Error fetching events:", error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [router]);
 
   const deleteEvent = async (eventId: string, eventTitle: string) => {
     if (!confirm(`Are you sure you want to delete event "${eventTitle}"? This action cannot be undone.`)) {
@@ -54,22 +75,38 @@ export default function AdminEventsPage() {
 
     try {
       const token = localStorage.getItem("accessToken");
+      const userId = localStorage.getItem("userId");
+      const userRole = localStorage.getItem("userRole");
+
+      if (!token || !userId || !userRole) {
+        router.push("/login");
+        return;
+      }
+
       const response = await fetch(`/api/events/${eventId}`, {
         method: "DELETE",
         headers: {
-          Authorization: `Bearer ${token}`,
+          'Authorization': `Bearer ${token}`,
+          'x-user-id': userId,
+          'x-user-role': userRole,
+          'Content-Type': 'application/json',
         },
       });
 
       if (response.ok) {
         fetchEvents();
       } else {
-        const data = await response.json();
-        alert(`Failed to delete event: ${data.message}`);
+        const errorData = await response.json().catch(() => ({}));
+        console.error("Failed to delete event:", errorData.message || 'Unknown error');
+        if (response.status === 401) {
+          router.push("/login");
+        } else {
+          alert(`Failed to delete event: ${errorData.message || 'Please try again'}`);
+        }
       }
     } catch (error) {
       console.error("Error deleting event:", error);
-      alert("An error occurred while deleting the event");
+      alert("An error occurred while deleting the event. Please try again.");
     }
   };
 
@@ -77,7 +114,7 @@ export default function AdminEventsPage() {
     if (user && hasRole(["Admin"])) {
       fetchEvents();
     }
-  }, [user, hasRole]);
+  }, [user, hasRole, fetchEvents]);
 
   if (!user || !hasRole(["Admin"])) {
     return (
@@ -126,14 +163,25 @@ export default function AdminEventsPage() {
                       <strong>Date:</strong> {new Date(event.date).toLocaleDateString()}
                     </p>
                     <div className="flex gap-2 mt-4">
-                      <Button variant="outline" size="sm">
+                      <Button 
+                        variant="outline" 
+                        size="sm"
+                        onClick={() => setEditingEvent({
+                          ...event,
+                          location: event.location || '' // Ensure location is always a string
+                        })}
+                        className="flex items-center gap-1"
+                      >
+                        <Pencil className="h-4 w-4" />
                         Edit
                       </Button>
                       <Button 
                         variant="destructive" 
                         size="sm"
                         onClick={() => deleteEvent(event.id, event.title)}
+                        className="flex items-center gap-1"
                       >
+                        <Trash2 className="h-4 w-4" />
                         Delete
                       </Button>
                     </div>
@@ -150,6 +198,18 @@ export default function AdminEventsPage() {
         onOpenChange={setCreateModalOpen}
         onEventCreated={fetchEvents}
       />
+      
+      {editingEvent && (
+        <EditEventModal
+          open={!!editingEvent}
+          onOpenChange={(open: boolean) => !open && setEditingEvent(null)}
+          event={editingEvent}
+          onEventUpdated={() => {
+            fetchEvents();
+            setEditingEvent(null);
+          }}
+        />
+      )}
     </DashboardLayout>
   );
 }

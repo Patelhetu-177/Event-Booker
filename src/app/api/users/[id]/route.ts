@@ -1,4 +1,4 @@
-import { NextRequest } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
@@ -117,19 +117,69 @@ export async function DELETE(
       throw new ValidationError("Cannot delete your own account");
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id },
+    await prisma.$transaction(async (prisma) => {
+      const userReservations = await prisma.reservation.findMany({
+        where: { userId: id },
+        include: {
+          ticket: true,
+          payment: true
+        }
+      });
+
+      for (const reservation of userReservations) {
+        if (reservation.payment) {
+          await prisma.payment.delete({
+            where: { id: reservation.payment.id }
+          });
+        }
+      }
+
+      await prisma.reservation.deleteMany({
+        where: { userId: id }
+      });
+      const events = await prisma.event.findMany({
+        where: { organizerId: id },
+        include: {
+          tickets: {
+            include: {
+              reservations: true
+            }
+          }
+        }
+      });
+
+      for (const event of events) {
+        for (const ticket of event.tickets) {
+          for (const reservation of ticket.reservations) {
+            await prisma.payment.deleteMany({
+              where: { reservationId: reservation.id }
+            });
+          }
+          
+          await prisma.reservation.deleteMany({
+            where: { ticketId: ticket.id }
+          });
+        }
+
+        await prisma.ticket.deleteMany({
+          where: { eventId: event.id }
+        });
+      }
+
+      await prisma.event.deleteMany({
+        where: { organizerId: id }
+      });
+
+      await prisma.refreshToken.deleteMany({
+        where: { userId: id }
+      });
+
+      await prisma.user.delete({
+        where: { id }
+      });
     });
 
-    if (!user) {
-      throw new NotFoundError("User not found");
-    }
-
-    await prisma.user.delete({
-      where: { id },
-    });
-
-    return successResponse(null, "User deleted successfully", 204);
+    return new NextResponse(null, { status: 204 });
   } catch (error) {
     return errorResponse(error);
   }
