@@ -25,6 +25,11 @@ export default function CustomerProfilePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [stats, setStats] = useState({
+    memberSince: user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : new Date().toLocaleDateString(),
+    totalReservations: 0,
+    eventsAttended: 0
+  });
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || !hasRole([Role.Customer]))) {
@@ -38,6 +43,30 @@ export default function CustomerProfilePage() {
         name: user.name || "",
         email: user.email || "",
       });
+      
+      const fetchStats = async () => {
+        try {
+          const token = localStorage.getItem("accessToken");
+          const response = await fetch(`${getBaseUrl()}/api/users/${user.id}/stats`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          
+          if (response.ok) {
+            const data = await response.json();
+            setStats({
+              memberSince: user.createdAt ? new Date(user.createdAt).toLocaleDateString() : new Date().toLocaleDateString(),
+              totalReservations: data.totalReservations || 0,
+              eventsAttended: data.eventsAttended || 0
+            });
+          }
+        } catch (err) {
+          console.error('Failed to fetch user stats:', err);
+        }
+      };
+      
+      fetchStats();
     }
   }, [user]);
 
@@ -213,16 +242,16 @@ export default function CustomerProfilePage() {
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Member since</span>
                 <span className="text-sm font-medium">
-                  {new Date().toLocaleDateString()}
+                  {stats.memberSince}
                 </span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Total reservations</span>
-                <span className="text-sm font-medium">0</span>
+                <span className="text-sm font-medium">{stats.totalReservations}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-sm text-muted-foreground">Events attended</span>
-                <span className="text-sm font-medium">0</span>
+                <span className="text-sm font-medium">{stats.totalReservations}</span>
               </div>
             </CardContent>
           </Card>

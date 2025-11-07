@@ -10,6 +10,8 @@ interface User {
   name: string;
   email: string;
   role: Role;
+  createdAt: string;
+  updatedAt: string;
 }
 
 interface AuthContextType {
@@ -56,6 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name: decodedPayload.name || "",
         email: decodedPayload.email,
         role: decodedPayload.role,
+        createdAt: decodedPayload.createdAt || new Date().toISOString(),
+        updatedAt: decodedPayload.updatedAt || new Date().toISOString(),
       };
     } catch (error) {
       console.error("Failed to decode access token:", error);

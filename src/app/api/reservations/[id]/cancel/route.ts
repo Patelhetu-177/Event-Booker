@@ -5,8 +5,8 @@ import { ForbiddenError, NotFoundError, UnauthorizedError, ConflictError } from 
 import { Role, ReservationStatus, TicketStatus } from "@prisma/client";
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
-    const { id } = await params;
     const userId = req.headers.get("x-user-id");
     const userRole = req.headers.get("x-user-role");
 
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const reservation = await prisma.reservation.findUnique({
       where: { id },
-      include: { ticket: true },
+      include: { tickets: true },
     });
 
     if (!reservation) {
@@ -37,12 +37,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         data: { status: ReservationStatus.Cancelled },
       });
 
-      if (reservation.ticketId) {
-        await tx.ticket.update({
-          where: { id: reservation.ticketId },
-          data: { status: TicketStatus.Available },
-        });
-      }
+      // Update all tickets in the reservation to be available
+      await Promise.all(
+        reservation.tickets.map(ticket => 
+          tx.ticket.update({
+            where: { id: ticket.id },
+            data: { status: TicketStatus.Available, reservationId: null }
+          })
+        )
+      );
       return updatedReservation;
     });
 

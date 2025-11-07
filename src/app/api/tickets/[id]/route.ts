@@ -11,13 +11,13 @@ const updateTicketSchema = z.object({
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
-    const { id } = await params;
     const ticket = await prisma.ticket.findUnique({
       where: { id },
       include: {
-        event: { select: { id: true, title: true, date: true, organizerId: true } },
-        reservations: true,
+        Event: { select: { id: true, title: true, date: true, organizerId: true } },
+        reservation: true,
       },
     });
 
@@ -32,8 +32,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
-    const { id } = await params;
     const userId = req.headers.get("x-user-id");
     const userRole = req.headers.get("x-user-role");
 
@@ -43,14 +43,17 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 
     const existingTicket = await prisma.ticket.findUnique({
       where: { id },
-      include: { event: true },
+      include: {
+        Event: { select: { id: true, title: true, date: true, organizerId: true } },
+        reservation: true,
+      },
     });
 
     if (!existingTicket) {
       throw new NotFoundError("Ticket not found");
     }
 
-    if (userRole !== Role.Admin && existingTicket.event.organizerId !== userId) {
+    if (userRole !== Role.Admin && existingTicket.Event.organizerId !== userId) {
       throw new ForbiddenError("You are not authorized to update this ticket");
     }
 
@@ -72,8 +75,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
-    const { id } = await params;
     const userId = req.headers.get("x-user-id");
     const userRole = req.headers.get("x-user-role");
 
@@ -83,14 +86,16 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
     const existingTicket = await prisma.ticket.findUnique({
       where: { id },
-      include: { event: true },
+      include: {
+        Event: { select: { id: true, organizerId: true } },
+      },
     });
 
     if (!existingTicket) {
       throw new NotFoundError("Ticket not found");
     }
 
-    if (userRole !== Role.Admin && existingTicket.event.organizerId !== userId) {
+    if (userRole !== Role.Admin && existingTicket.Event.organizerId !== userId) {
       throw new ForbiddenError("You are not authorized to delete this ticket");
     }
 

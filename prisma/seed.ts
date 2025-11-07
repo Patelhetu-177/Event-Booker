@@ -80,10 +80,22 @@ async function main() {
   });
   console.log("Created tickets for Event 1.");
 
+  // First update the ticket to be reserved
+  await prisma.ticket.update({
+    where: { id: ticket1_event1.id },
+    data: {
+      status: 'Booked'
+    }
+  });
+
   const reservation1 = await prisma.reservation.create({
     data: {
-      userId: customerUser.id,
-      ticketId: ticket1_event1.id,
+      user: {
+        connect: { id: customerUser.id }
+      },
+      tickets: {
+        connect: { id: ticket1_event1.id }
+      },
       status: ReservationStatus.Confirmed,
     },
   });

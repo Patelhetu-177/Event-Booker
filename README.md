@@ -45,7 +45,7 @@ Before running this project, make sure you have:
 
 ```bash
 git clone <repository-url>
-cd event-booking-system
+cd EventSphere
 ```
 
 ### 2. Install Dependencies

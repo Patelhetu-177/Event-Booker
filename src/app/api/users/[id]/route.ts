@@ -17,14 +17,14 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     const userRole = req.headers.get("x-user-role");
-    
+
     if (userRole !== Role.Admin) {
       throw new ForbiddenError("Admin access required");
     }
 
-    const { id } = await params;
     const user = await prisma.user.findUnique({
       where: { id },
       select: {
@@ -50,14 +50,14 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     const userRole = req.headers.get("x-user-role");
-    
+
     if (userRole !== Role.Admin) {
       throw new ForbiddenError("Admin access required");
     }
 
-    const { id } = await params;
     const body = await req.json();
     const updateData = updateUserSchema.parse(body);
 
@@ -104,15 +104,15 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
   try {
     const userRole = req.headers.get("x-user-role");
     const currentUserId = req.headers.get("x-user-id");
-    
+
     if (userRole !== Role.Admin) {
       throw new ForbiddenError("Admin access required");
     }
 
-    const { id } = await params;
     if (currentUserId === id) {
       throw new ValidationError("Cannot delete your own account");
     }
@@ -121,7 +121,11 @@ export async function DELETE(
       const userReservations = await prisma.reservation.findMany({
         where: { userId: id },
         include: {
-          ticket: true,
+          tickets: {
+            include: {
+              reservation: true
+            }
+          },
           payment: true
         }
       });
@@ -140,29 +144,19 @@ export async function DELETE(
       const events = await prisma.event.findMany({
         where: { organizerId: id },
         include: {
-          tickets: {
-            include: {
-              reservations: true
-            }
-          }
+          Ticket: true
         }
       });
 
       for (const event of events) {
-        for (const ticket of event.tickets) {
-          for (const reservation of ticket.reservations) {
-            await prisma.payment.deleteMany({
-              where: { reservationId: reservation.id }
-            });
-          }
-          
-          await prisma.reservation.deleteMany({
-            where: { ticketId: ticket.id }
-          });
-        }
-
+        // Delete all tickets associated with the event
         await prisma.ticket.deleteMany({
           where: { eventId: event.id }
+        });
+        
+        // Delete the event
+        await prisma.event.delete({
+          where: { id: event.id }
         });
       }
 

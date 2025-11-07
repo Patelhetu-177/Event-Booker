@@ -22,7 +22,7 @@ const createTicketSchema = z.object({
 export async function GET() {
   try {
     const tickets = await prisma.ticket.findMany({
-      include: { event: { select: { id: true, title: true, date: true } } },
+      include: { Event: { select: { id: true, title: true, date: true } } },
       orderBy: { createdAt: "asc" },
     });
     return successResponse(tickets, "Tickets retrieved successfully");

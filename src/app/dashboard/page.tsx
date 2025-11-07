@@ -4,7 +4,11 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/dashboard-layout";
-import { Role } from "@prisma/client";
+const Role = {
+  Admin: 'Admin',
+  Organizer: 'Organizer',
+  Customer: 'Customer'
+} as const;
 
 export default function DashboardPage() {
   const { user, loading, isAuthenticated, isInitialized } = useAuth();

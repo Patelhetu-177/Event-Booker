@@ -24,7 +24,15 @@ interface Ticket {
   id: string;
   price: number;
   status: TicketStatus;
+  _count?: {
+    reservations: number;
+  };
+  reservations?: Array<{
+    id: string;
+    status: string;
+  }>;
 }
+
 
 export default function EventDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const [id, setId] = useState<string>("");
@@ -37,6 +45,8 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState<boolean>(false);
+  const [selectedTickets, setSelectedTickets] = useState<Record<string, number>>({});
+  const [isReserving, setIsReserving] = useState(false);
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || !hasRole([Role.Customer]))) {
@@ -72,13 +82,35 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
     }
   }, [isAuthenticated, accessToken, id]);
 
-  const handleReserveTicket = async (ticketId: string) => {
+  const handleQuantityChange = (ticketId: string, quantity: number) => {
+    setSelectedTickets(prev => ({
+      ...prev,
+      [ticketId]: Math.max(0, quantity) // Ensure quantity is not negative
+    }));
+  };
+
+  const handleReserveTickets = async () => {
     if (!accessToken || !user) {
-      setError("You must be logged in to reserve a ticket.");
+      setError("You must be logged in to reserve tickets.");
       return;
     }
+
+    // Filter out tickets with 0 quantity
+    const ticketsToReserve = Object.entries(selectedTickets)
+      .filter(([, quantity]) => quantity > 0)
+      .map(([ticketId, quantity]) => ({
+        ticketId,
+        quantity
+      }));
+
+    if (ticketsToReserve.length === 0) {
+      setError("Please select at least one ticket to reserve.");
+      return;
+    }
+
     setLoadingAction(true);
     setError(null);
+    setIsReserving(true);
 
     try {
       const response = await fetch(`${getBaseUrl()}/api/reservations`, {
@@ -86,24 +118,41 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${accessToken}`,
+          "x-user-id": user.id,
+          "x-user-role": user.role,
         },
-        body: JSON.stringify({ ticketId }),
+        body: JSON.stringify({ tickets: ticketsToReserve }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.message || "Failed to reserve ticket");
-        return;
+        throw new Error(data.message || "Failed to reserve tickets");
       }
 
-      alert("Ticket reserved successfully! Redirecting to your reservations.");
-      router.push("/dashboard/customer/reservations");
-    } catch (err) {
-      console.error("Reservation error:", err);
-      setError("An unexpected error occurred while reserving the ticket.");
+      // Redirect to payment page with reservation details
+      const reservationIds = data.data.map((r: { id: string }) => r.id);
+      const totalAmount = data.data.reduce(
+        (sum: number, r: { ticket: { price: number } }) => sum + r.ticket.price, 
+        0
+      );
+      
+      // Store reservation details in session storage for the payment page
+      sessionStorage.setItem('pendingPayment', JSON.stringify({
+        reservationIds,
+        totalAmount,
+        eventId: id
+      }));
+
+      // Redirect to payment page
+      router.push(`/dashboard/customer/reservations?amount=${totalAmount}&eventId=${id}`);
+    } catch (error) {
+      console.error("Error reserving tickets:", error);
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred while reserving the tickets.";
+      setError(errorMessage);
     } finally {
       setLoadingAction(false);
+      setIsReserving(false);
     }
   };
 
@@ -138,7 +187,115 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
   };
 
   const eventDate = formatEventDate(event.date);
-  const availableTickets = event.tickets.filter(ticket => ticket.status === TicketStatus.Available);
+
+  // Get available tickets (status is Available and not already reserved by the user)
+  const availableTickets = event?.tickets?.filter(ticket => {
+    // Check if ticket is available
+    const isAvailable = ticket.status === TicketStatus.Available;
+    
+    // Check if user already has a reservation for this ticket
+    const userHasReservation = ticket.reservations?.some(
+      r => r.status === 'PENDING' || r.status === 'CONFIRMED'
+    );
+    
+    return isAvailable && !userHasReservation;
+  }) || [];
+
+  // Calculate total price
+  const totalPrice = availableTickets.reduce((sum: number, ticket) => {
+    const quantity = selectedTickets[ticket.id] || 0;
+    return sum + (ticket.price * quantity);
+  }, 0);
+
+  // Check if any tickets are selected
+  const hasSelectedTickets = Object.values(selectedTickets).some(qty => qty > 0);
+
+  // Group tickets by price
+  const ticketsByPrice = availableTickets.reduce((acc, ticket) => {
+    const priceKey = ticket.price.toString();
+    if (!acc[priceKey]) {
+      acc[priceKey] = [];
+    }
+    acc[priceKey].push(ticket);
+    return acc;
+  }, {} as Record<string, typeof availableTickets>);
+
+  // Render ticket cards
+  const renderTickets = () => {
+    if (!availableTickets.length) {
+      return <p className="text-gray-500">No tickets available for this event.</p>;
+    }
+
+    return (
+      <div className="space-y-4">
+        {Object.entries(ticketsByPrice).map(([price, tickets]) => {
+          const availableQuantity = tickets.length;
+          const selectedQuantity = tickets.reduce(
+            (sum, ticket) => sum + (selectedTickets[ticket.id] || 0), 0
+          );
+          // Use first ticket for price display
+          
+          return (
+            <Card key={`price-${price}`} className="p-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h4 className="text-lg font-semibold">${parseFloat(price).toFixed(2)}</h4>
+                  <p className="text-sm text-gray-500">
+                    {selectedQuantity} of {availableQuantity} tickets available
+                  </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const ticketId = tickets[selectedQuantity - 1]?.id;
+                      if (ticketId) {
+                        handleQuantityChange(ticketId, (selectedTickets[ticketId] || 0) - 1);
+                      }
+                    }}
+                    disabled={selectedQuantity <= 0}
+                  >
+                    -
+                  </Button>
+                  <span className="w-8 text-center">{selectedQuantity}</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const availableTicket = tickets.find(t => !selectedTickets[t.id] || selectedTickets[t.id] === 0);
+                      if (availableTicket) {
+                        handleQuantityChange(availableTicket.id, 1);
+                      }
+                    }}
+                    disabled={selectedQuantity >= availableQuantity}
+                  >
+                    +
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+
+        {hasSelectedTickets && (
+          <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+            <div className="flex justify-between items-center mb-4">
+              <span className="font-semibold">Total</span>
+              <span className="text-lg font-bold">${totalPrice.toFixed(2)}</span>
+            </div>
+            <Button 
+              onClick={handleReserveTickets}
+              disabled={loadingAction || isReserving}
+              className="w-full"
+            >
+              {isReserving ? "Processing..." : `Reserve ${Object.values(selectedTickets).reduce((a, b) => a + b, 0)} Tickets`}
+            </Button>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <DashboardLayout>
@@ -205,47 +362,7 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
                     {error}
                   </div>
                 )}
-
-                {event.tickets.length === 0 ? (
-                  <div className="text-center py-6">
-                    <TicketIcon className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">No tickets available for this event</p>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    {event.tickets.map((ticket, index) => (
-                      <Card key={ticket.id} className={`${ticket.status !== TicketStatus.Available ? "opacity-60" : ""}`}>
-                        <CardContent className="p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <div>
-                              <p className="font-semibold">${ticket.price.toFixed(2)}</p>
-                              <p className="text-sm text-muted-foreground">Ticket #{index + 1}</p>
-                            </div>
-                            <Badge 
-                              variant={ticket.status === TicketStatus.Available ? "default" : "secondary"}
-                            >
-                              {ticket.status}
-                            </Badge>
-                          </div>
-                          
-                          {ticket.status === TicketStatus.Available && eventDate.isUpcoming ? (
-                            <Button 
-                              onClick={() => handleReserveTicket(ticket.id)} 
-                              disabled={loadingAction}
-                              className="w-full"
-                            >
-                              {loadingAction ? "Reserving..." : "Reserve Ticket"}
-                            </Button>
-                          ) : (
-                            <Button disabled className="w-full">
-                              {!eventDate.isUpcoming ? "Event Passed" : "Not Available"}
-                            </Button>
-                          )}
-                        </CardContent>
-                      </Card>
-                    ))}
-                  </div>
-                )}
+                {renderTickets()}
               </CardContent>
             </Card>
           </div>

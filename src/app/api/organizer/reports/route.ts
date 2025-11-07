@@ -8,7 +8,7 @@ export async function GET(req: NextRequest) {
   try {
     const userRole = req.headers.get("x-user-role");
     const userId = req.headers.get("x-user-id");
-    
+
     if (!userRole || !userId) {
       throw new UnauthorizedError("User not authenticated");
     }
@@ -33,41 +33,74 @@ export async function GET(req: NextRequest) {
     });
 
     const totalEvents = events.length;
-    
+
     const totalTickets = await prisma.ticket.count({
       where: {
-        event: whereClause
+        Event: whereClause
       }
     });
 
-    const totalReservations = await prisma.reservation.count({
-      where: {
-        ticket: {
-          event: whereClause
-        }
-      }
-    });
+    const eventIds = (await prisma.event.findMany({
+      where: whereClause,
+      select: { id: true }
+    })).map(event => event.id);
 
-    const revenueResult = await prisma.payment.aggregate({
-      where: {
-        status: "Completed",
-        reservation: {
-          ticket: {
-            event: whereClause
+    let totalReservations = 0;
+    
+    if (eventIds.length > 0) {
+      const columnInfo = await prisma.$queryRaw<Array<{ column_name: string }>>`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'Ticket' 
+        AND column_name IN ('reservationId', 'reservation_id')
+        LIMIT 1
+      `;
+      
+      const reservationIdColumn = columnInfo[0]?.column_name || 'reservationId';
+      
+      const reservationsResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(DISTINCT ${reservationIdColumn}) as count
+        FROM "public"."Ticket"
+        WHERE "eventId" IN (${eventIds.join(",")})
+        AND ${reservationIdColumn} IS NOT NULL
+      `;
+      
+      totalReservations = Number(reservationsResult[0]?.count) || 0;
+    }
+
+    let totalRevenue = 0;
+    
+    if (eventIds.length > 0) {
+      const reservationIds = (await prisma.ticket.findMany({
+        where: {
+          eventId: { in: eventIds },
+          reservationId: { not: null }
+        },
+        distinct: ['reservationId'],
+        select: { reservationId: true }
+      })).map(t => t.reservationId);
+      
+      if (reservationIds.length > 0) {
+        const revenueResult = await prisma.payment.aggregate({
+          where: {
+            status: "Completed",
+            reservationId: { in: reservationIds.filter((id): id is string => id !== null) }
+          },
+          _sum: {
+            amount: true
           }
-        }
-      },
-      _sum: {
-        amount: true
+        });
+        totalRevenue = revenueResult._sum.amount || 0;
       }
-    });
-    const totalRevenue = revenueResult._sum.amount || 0;
+    }
 
     const recentReservations = await prisma.reservation.findMany({
       take: 5,
       where: {
-        ticket: {
-          event: whereClause
+        tickets: {
+          some: {
+            eventId: { in: eventIds }
+          }
         }
       },
       orderBy: { createdAt: "desc" },
@@ -77,24 +110,37 @@ export async function GET(req: NextRequest) {
         user: {
           select: { name: true, email: true }
         },
-        ticket: {
+        tickets: {
+          where: {
+            eventId: { in: eventIds }
+          },
           select: {
-            event: {
+            Event: {
               select: { title: true }
             }
-          }
+          },
+          take: 1
         }
       },
     });
+
+    const reservationIds = (await prisma.reservation.findMany({
+      where: {
+        tickets: {
+          some: {
+            eventId: { in: eventIds }
+          }
+        }
+      },
+      select: { id: true }
+    })).map(r => r.id);
 
     const recentPayments = await prisma.payment.findMany({
       take: 5,
       where: {
         status: "Completed",
         reservation: {
-          ticket: {
-            event: whereClause
-          }
+          id: { in: reservationIds }
         }
       },
       orderBy: { createdAt: "desc" },
@@ -107,9 +153,9 @@ export async function GET(req: NextRequest) {
             user: {
               select: { name: true }
             },
-            ticket: {
+            tickets: {
               select: {
-                event: {
+                Event: {
                   select: { title: true }
                 }
               }
@@ -123,18 +169,18 @@ export async function GET(req: NextRequest) {
       ...recentReservations.map(reservation => ({
         id: `reservation-${reservation.id}`,
         type: "reservation_made" as const,
-        description: `${reservation.user.name} booked a ticket for ${reservation.ticket.event.title}`,
+        description: `${reservation.user.name} booked a ticket for ${reservation.tickets[0].Event.title}`,
         timestamp: reservation.createdAt.toISOString(),
       })),
       ...recentPayments.map(payment => ({
         id: `payment-${payment.id}`,
         type: "payment_completed" as const,
-        description: `Payment of $${payment.amount.toFixed(2)} received for ${payment.reservation.ticket.event.title}`,
+        description: `Payment of $${payment.amount.toFixed(2)} received for ${payment.reservation.tickets[0].Event.title}`,
         timestamp: payment.createdAt.toISOString(),
       })),
     ]
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 10);
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+      .slice(0, 10);
 
     const eventPerformance = await Promise.all(
       events.map(async (event) => {
@@ -142,9 +188,9 @@ export async function GET(req: NextRequest) {
           where: { eventId: event.id }
         });
         const eventReservations = await prisma.reservation.count({
-          where: { ticket: { eventId: event.id } }
+          where: { tickets: { some: { eventId: event.id } } }
         });
-        
+
         return {
           id: event.id,
           title: event.title,

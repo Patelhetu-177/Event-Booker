@@ -61,7 +61,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
     <div className="flex min-h-screen bg-gray-100 dark:bg-gray-950">
       <aside className="w-64 bg-white dark:bg-gray-900 shadow-md p-4 space-y-4">
-        <div className="text-xl font-bold text-gray-800 dark:text-white">Event Booker</div>
+        <div className="flex items-center justify-center py-2">
+          <h1 className="text-3xl font-bold">
+            <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              Event
+            </span>
+            <span className="bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
+              Sphere
+            </span>
+            
+          </h1>
+        </div>
         <nav className="space-y-2">
           {navItems.map((item) => (
             <Link

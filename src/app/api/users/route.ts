@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { errorResponse, successResponse } from "@/lib/response";
 import { ForbiddenError, ConflictError } from "@/lib/errors";
-import { Role } from "@prisma/client";
 
 const createUserSchema = z.object({
   name: z.string().min(3, "Name must be at least 3 characters"),
@@ -17,7 +16,7 @@ export async function GET(req: NextRequest) {
   try {
     const userRole = req.headers.get("x-user-role");
     
-    if (userRole !== Role.Admin) {
+    if (userRole !== 'Admin') {
       throw new ForbiddenError("Admin access required");
     }
 
@@ -42,7 +41,7 @@ export async function POST(req: NextRequest) {
   try {
     const userRole = req.headers.get("x-user-role");
     
-    if (userRole !== Role.Admin) {
+    if (userRole !== 'Admin') {
       throw new ForbiddenError("Admin access required");
     }
 

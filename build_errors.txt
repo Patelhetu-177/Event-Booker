@@ -1,0 +1,94 @@
+﻿
+> EventSphere@0.1.0 build
+> next build --turbopack
+
+   Γû▓ Next.js 15.5.3 (Turbopack)
+   - Environments: .env
+
+   Creating an optimized production build ...
+ Γ£ô Finished writing to disk in 314ms
+ Γ£ô Compiled successfully in 5.7s
+   Linting and checking validity of types ...
+node.exe : Failed to compile.
+At line:1 char:1
++ & 
+"C:\nvm4w\nodejs/node.exe" "C
+:\nvm4w\nodejs/node_modules/n
+pm/bin/np ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~
+    + CategoryInfo           
+   : NotSpecified: (Failed   
+  to compile.:String) [],    
+ RemoteException
+    + FullyQualifiedErrorId  
+   : NativeCommandError
+ 
+
+.next/types/validator.ts:279:
+31
+Type error: Type 'typeof impo
+rt("C:/Users/hp/Desktop/event
+-booking-system/src/app/api/r
+eservations/[id]/route")' 
+does not satisfy the 
+constraint 'RouteHandlerConfi
+g<"/api/reservations/[id]">'.
+  Types of property 'DELETE' 
+are incompatible.
+    Type '(request: 
+NextRequest, { params }: { 
+params: { id: string; }; }) 
+=> Promise<NextResponse<{ 
+message: any; }>>' is not 
+assignable to type 
+'(request: NextRequest, 
+context: { params: Promise<{ 
+id: string; }>; }) => void | 
+Response | Promise<void | 
+Response>'.
+      Types of parameters 
+'__1' and 'context' are 
+incompatible.
+        Type '{ params: 
+Promise<{ id: string; }>; }' 
+is not assignable to type '{ 
+params: { id: string; }; }'.
+          Types of property 
+'params' are incompatible.
+            Property 'id' is 
+missing in type 'Promise<{ 
+id: string; }>' but required 
+in type '{ id: string; }'.
+
+[0m [90m 277 |[39m   type 
+__IsExpected[33m<[39m[33mS
+pecific[39m 
+[36mextends[39m [33mRouteH
+andlerConfig[39m[33m<[39m
+[32m"/api/reservations/[id]"
+[39m[33m>>[39m [33m=[39m 
+[33mSpecific[39m
+ [90m 278 |[39m   
+[36mconst[39m handler 
+[33m=[39m {} [36mas[39m 
+[36mtypeof[39m [36mimport
+[39m([32m"../../src/app/api/
+reservations/[id]/route.js"[
+39m)
+[31m[1m>[22m[39m[90m 
+279 |[39m   type __Check 
+[33m=[39m __IsExpected[33m
+<[39m[36mtypeof[39m 
+handler[33m>[39m
+ [90m     |[39m            
+                   
+[31m[1m^[22m[39m
+ [90m 280 |[39m   [90m// 
+@ts-ignore[39m
+ [90m 281 |[39m   type 
+__Unused [33m=[39m __Check
+ [90m 282 |[39m }[0m
+Next.js build worker exited 
+with code: 1 and signal: null

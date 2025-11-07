@@ -3,7 +3,15 @@
 import DashboardLayout from "@/components/dashboard-layout";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
-import { Role } from "@prisma/client";
+
+// Define Role enum to match Prisma schema
+const Role = {
+  Admin: 'Admin',
+  Organizer: 'Organizer',
+  Customer: 'Customer'
+} as const;
+
+type Role = typeof Role[keyof typeof Role];
 import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

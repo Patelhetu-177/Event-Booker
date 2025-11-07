@@ -60,15 +60,13 @@ export async function GET(req: NextRequest) {
     const recentReservations = await prisma.reservation.findMany({
       take: 3,
       orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        createdAt: true,
+      include: {
         user: {
           select: { name: true }
         },
-        ticket: {
-          select: {
-            event: {
+        tickets: {
+          include: {
+            Event: {
               select: { title: true }
             }
           }
@@ -112,7 +110,7 @@ export async function GET(req: NextRequest) {
       ...recentReservations.map(reservation => ({
         id: `reservation-${reservation.id}`,
         type: "reservation_made" as const,
-        description: `${reservation.user.name} made a reservation for ${reservation.ticket.event.title}`,
+        description: `${reservation.user?.name || 'A user'} made a reservation for ${reservation.tickets?.[0]?.Event?.title || 'an event'}`,
         timestamp: reservation.createdAt.toISOString(),
       })),
       ...recentPayments.map(payment => ({

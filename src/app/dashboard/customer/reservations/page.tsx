@@ -8,13 +8,14 @@ import { Role, ReservationStatus, TicketStatus, PaymentStatus } from "@prisma/cl
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, CreditCard, Ticket, AlertCircle, CheckCircle } from "lucide-react";
+import { Calendar, Clock, Ticket, AlertCircle, CheckCircle } from "lucide-react";
 import { getBaseUrl } from "@/lib/client-utils";
 
 interface Reservation {
   id: string;
   status: ReservationStatus;
   createdAt: string;
+  quantity: number;
   ticket: {
     id: string;
     price: number;
@@ -30,6 +31,7 @@ interface Reservation {
     amount: number;
     status: PaymentStatus;
   };
+  ticketNumber?: string;
 }
 
 export default function CustomerReservationsPage() {
@@ -44,6 +46,28 @@ export default function CustomerReservationsPage() {
       router.push("/login");
     }
   }, [loading, isAuthenticated, hasRole, router]);
+
+  interface ReservationResponse {
+    id: string;
+    status: ReservationStatus;
+    createdAt: string;
+    quantity?: number;
+    ticket: {
+      id: string;
+      price: number;
+      status: TicketStatus;
+      event: {
+        id: string;
+        title: string;
+        date: string;
+      };
+    };
+    payment?: {
+      id: string;
+      amount: number;
+      status: PaymentStatus;
+    };
+  }
 
   const fetchReservations = useCallback(async () => {
     if (!accessToken) return;
@@ -60,10 +84,18 @@ export default function CustomerReservationsPage() {
         setError(data.message || "Failed to fetch reservations");
         return;
       }
-      setReservations(data.data || []);
-    } catch (err) {
-      console.error("Error fetching reservations:", err);
-      setError("An unexpected error occurred while fetching reservations.");
+
+      const processedReservations = (data.data || [] as ReservationResponse[]).map((reservation: ReservationResponse) => ({
+        ...reservation,
+        quantity: reservation.quantity || 1,
+        ticketNumber: `TKT-${reservation.id.slice(0, 8).toUpperCase()}`
+      }));
+
+      setReservations(processedReservations);
+    } catch (error) {
+      console.error("Error fetching reservations:", error);
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred while fetching reservations.";
+      setError(errorMessage);
     }
   }, [accessToken]);
 
@@ -73,41 +105,58 @@ export default function CustomerReservationsPage() {
     }
   }, [isAuthenticated, accessToken, fetchReservations]);
 
-  const handleCancelReservation = async (reservationId: string) => {
-    if (!accessToken || !user) {
-      setError("You must be logged in to cancel a reservation.");
+  const handleCancelReservation = async (reservationId: string, eventId: string) => {
+    if (!accessToken) return;
+
+    const reservation = reservations.find(r => r.id === reservationId);
+    if (!reservation) return;
+
+    const ticketWord = reservation.quantity > 1 ? 'tickets' : 'ticket';
+    if (!confirm(`Are you sure you want to cancel this reservation of ${reservation.quantity} ${ticketWord}? This will make the ${ticketWord} available for others.`)) {
       return;
     }
-    setLoadingAction(true);
-    setError(null);
 
     try {
-      const response = await fetch(`${getBaseUrl()}/api/reservations/${reservationId}/cancel`, {
-        method: "POST",
+      setLoadingAction(true);
+
+      const response = await fetch(`${getBaseUrl()}/api/reservations/${reservationId}`, {
+        method: 'DELETE',
         headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+          'x-quantity': reservation.quantity.toString()
+        }
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        setError(data.message || "Failed to cancel reservation");
-        return;
+        const error = await response.json();
+        throw new Error(error.message || 'Failed to cancel reservation');
       }
 
-      alert("Reservation cancelled successfully!");
-      fetchReservations(); 
-    } catch (err) {
-      console.error("Cancellation error:", err);
-      setError("An unexpected error occurred while cancelling the reservation.");
+      await fetchReservations();
+
+      const eventResponse = await fetch(`${getBaseUrl()}/api/events/${eventId}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      });
+
+      if (!eventResponse.ok) {
+        throw new Error('Failed to refresh event data');
+      }
+
+      alert(`Successfully cancelled ${reservation.quantity} ${ticketWord}. They are now available for others.`);
+    } catch (error) {
+      console.error('Error cancelling reservation:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to cancel reservation';
+      alert(errorMessage);
     } finally {
       setLoadingAction(false);
     }
   };
 
-  const handleMakePayment = async (reservationId: string, amount: number) => {
+  const handleMakePayment = async (reservationId: string, price: number, quantity: number) => {
+    const totalAmount = price * quantity;
     if (!accessToken || !user) {
       setError("You must be logged in to make a payment.");
       return;
@@ -116,27 +165,86 @@ export default function CustomerReservationsPage() {
     setError(null);
 
     try {
+      setReservations(prevReservations =>
+        prevReservations.map(reservation =>
+          reservation.id === reservationId
+            ? {
+                ...reservation,
+                status: 'Pending' as const,
+                payment: {
+                  ...(reservation.payment || { id: `temp-${Date.now()}`, amount: totalAmount }),
+                  status: 'Pending' as const
+                }
+              }
+            : reservation
+        )
+      );
+
       const response = await fetch(`${getBaseUrl()}/api/payments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          "Authorization": `Bearer ${accessToken}`,
+          "x-user-id": user.id,
+          "x-user-role": user.role,
         },
-        body: JSON.stringify({ reservationId, amount }),
+        body: JSON.stringify({
+          reservationId,
+          amount: price, // Price per ticket
+          quantity,     // Number of tickets
+        }),
       });
 
       const data = await response.json();
 
       if (!response.ok) {
-        setError(data.message || "Payment failed");
-        return;
+        throw new Error(data.message || "Payment failed");
       }
 
-      alert("Payment successful!");
-      fetchReservations(); 
-    } catch (err) {
-      console.error("Payment error:", err);
-      setError("An unexpected error occurred during payment.");
+      // Update the UI to reflect the payment
+      setReservations(prevReservations =>
+        prevReservations.map(reservation => {
+          if (reservation.id === reservationId) {
+            return {
+              ...reservation,
+              status: 'Confirmed',
+              payment: {
+                id: data.data.id,
+                amount: totalAmount,
+                status: 'Completed' as const
+              },
+              ticket: {
+                ...reservation.ticket,
+                status: 'Booked' as const
+              },
+              quantity: quantity
+            };
+          }
+          return reservation;
+        })
+      );
+
+      alert(`Payment of $${totalAmount.toFixed(2)} for ${quantity} ticket(s) was successful!`);
+    } catch (error) {
+      console.error("Payment error:", error);
+      const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred during payment. Please try again.";
+      setError(errorMessage);
+      
+      // Update UI to show payment failure
+      setReservations(prevReservations =>
+        prevReservations.map(reservation =>
+          reservation.id === reservationId
+            ? {
+                ...reservation,
+                status: 'Pending',
+                payment: {
+                  ...(reservation.payment || { id: `temp-${Date.now()}`, amount: price * quantity }),
+                  status: 'Failed' as const
+                }
+              }
+            : reservation
+        )
+      );
     } finally {
       setLoadingAction(false);
     }
@@ -179,15 +287,15 @@ export default function CustomerReservationsPage() {
   const formatEventDate = (dateString: string) => {
     const date = new Date(dateString);
     return {
-      date: date.toLocaleDateString('en-US', { 
-        weekday: 'short', 
-        year: 'numeric', 
-        month: 'short', 
-        day: 'numeric' 
+      date: date.toLocaleDateString('en-US', {
+        weekday: 'short',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric'
       }),
-      time: date.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
+      time: date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit'
       })
     };
   };
@@ -226,9 +334,15 @@ export default function CustomerReservationsPage() {
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {reservations.map((reservation) => {
               const eventDate = formatEventDate(reservation.ticket.event.date);
-              const needsPayment = reservation.status === ReservationStatus.Confirmed && 
-                (!reservation.payment || reservation.payment.status === PaymentStatus.Failed);
-              
+              // Show pay button if reservation is pending or payment is pending/failed
+              const needsPayment = reservation.status === ReservationStatus.Pending ||
+                (reservation.payment && reservation.payment.status === PaymentStatus.Failed);
+
+              // Allow cancellation for pending or confirmed reservations that aren't already cancelled
+              const canCancel = (reservation.status === ReservationStatus.Pending ||
+                reservation.status === ReservationStatus.Confirmed) &&
+                !loadingAction;
+
               return (
                 <Card key={reservation.id} className="overflow-hidden">
                   <CardHeader className="pb-3">
@@ -242,7 +356,7 @@ export default function CustomerReservationsPage() {
                       </div>
                     </div>
                   </CardHeader>
-                  
+
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
                       <div className="flex items-center gap-2 text-sm">
@@ -253,13 +367,19 @@ export default function CustomerReservationsPage() {
                         <Clock className="h-4 w-4 text-muted-foreground" />
                         <span>{eventDate.time}</span>
                       </div>
-                      <div className="flex items-center gap-2 text-sm">
-                        <CreditCard className="h-4 w-4 text-muted-foreground" />
-                        <span>${reservation.ticket.price.toFixed(2)}</span>
+                      <div className="flex items-center justify-between text-sm">
+                        <div className="flex items-center gap-2">
+                          <Ticket className="h-4 w-4 text-muted-foreground" />
+                          <span>{reservation.quantity} × ${reservation.ticket.price.toFixed(2)}</span>
+                        </div>
+                        <span className="font-medium">${(reservation.quantity * reservation.ticket.price).toFixed(2)}</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        Ticket #: {reservation.ticketNumber}
                       </div>
                     </div>
 
-                    {reservation.payment && (
+                    {reservation.payment?.amount !== undefined && (
                       <div className="p-3 bg-muted rounded-lg">
                         <div className="flex items-center justify-between text-sm">
                           <span>Payment:</span>
@@ -271,20 +391,25 @@ export default function CustomerReservationsPage() {
                     <div className="flex gap-2">
                       {needsPayment && (
                         <Button
-                          onClick={() => handleMakePayment(reservation.id, reservation.ticket.price)}
+                          onClick={() => handleMakePayment(
+                            reservation.id,
+                            reservation.ticket.price,
+                            reservation.quantity
+                          )}
                           disabled={loadingAction}
                           className="flex-1"
                           size="sm"
+                          variant="default"
                         >
-                          {loadingAction ? "Processing..." : "Pay Now"}
+                          {loadingAction ? "Processing..." : `Pay $${(reservation.ticket.price * reservation.quantity).toFixed(2)}`}
                         </Button>
                       )}
-                      
-                      {reservation.status === ReservationStatus.Confirmed && (
+
+                      {canCancel && (
                         <Button
-                          onClick={() => handleCancelReservation(reservation.id)}
+                          onClick={() => handleCancelReservation(reservation.id, reservation.ticket.event.id)}
                           disabled={loadingAction}
-                          variant="outline"
+                          variant={needsPayment ? "outline" : "default"}
                           size="sm"
                           className={needsPayment ? "flex-none" : "flex-1"}
                         >

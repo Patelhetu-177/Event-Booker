@@ -12,11 +12,11 @@ const updateEventSchema = z.object({
 });
 
 export async function GET(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
-    const { id } = await params;
     const event = await prisma.event.findUnique({
       where: { id },
-      include: { organizer: { select: { id: true, name: true, email: true } }, tickets: true },
+      include: { organizer: { select: { id: true, name: true, email: true } }, Ticket: true },
     });
 
     if (!event) {
@@ -30,8 +30,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
-    const { id } = await params;
     const userId = req.headers.get("x-user-id");
     const userRole = req.headers.get("x-user-role");
 
@@ -67,8 +67,8 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
   try {
-    const { id } = await params;
     const userId = req.headers.get("x-user-id");
     const userRole = req.headers.get("x-user-role");
 

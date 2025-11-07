@@ -6,7 +6,10 @@ import { ForbiddenError, NotFoundError, UnauthorizedError, ConflictError } from 
 import { Role, TicketStatus, ReservationStatus } from "@prisma/client";
 
 const createReservationSchema = z.object({
-  ticketId: z.string().uuid("Invalid ticket ID"),
+  tickets: z.array(z.object({
+    ticketId: z.string().uuid("Invalid ticket ID"),
+    quantity: z.number().int().positive("Quantity must be at least 1").default(1)
+  })).min(1, "At least one ticket is required"),
 });
 
 export async function GET(req: NextRequest) {
@@ -25,7 +28,7 @@ export async function GET(req: NextRequest) {
         where: { userId },
         include: {
           user: { select: { id: true, name: true, email: true } },
-          ticket: { include: { event: true } },
+          tickets: { include: { Event: true } },
         },
         orderBy: { createdAt: "desc" },
       });
@@ -33,7 +36,7 @@ export async function GET(req: NextRequest) {
       reservations = await prisma.reservation.findMany({
         include: {
           user: { select: { id: true, name: true, email: true } },
-          ticket: { include: { event: true } },
+          tickets: { include: { Event: true } },
         },
         orderBy: { createdAt: "desc" },
       });
@@ -52,47 +55,102 @@ export async function POST(req: NextRequest) {
     const userId = req.headers.get("x-user-id");
     const userRole = req.headers.get("x-user-role");
 
-    if (!userId || !userRole) {
-      throw new UnauthorizedError("User not authenticated");
-    }
-
-    if (userRole !== Role.Customer) {
-      throw new ForbiddenError("Only Customers can create reservations");
+    if (!userId || userRole !== Role.Customer) {
+      throw new UnauthorizedError("Unauthorized access");
     }
 
     const body = await req.json();
-    const { ticketId } = createReservationSchema.parse(body);
+    const { tickets } = createReservationSchema.parse(body);
 
-    const ticket = await prisma.ticket.findUnique({ where: { id: ticketId } });
-    if (!ticket) {
-      throw new NotFoundError("Ticket not found");
-    }
+    // First, validate all tickets and quantities
+    const ticketDetails = await Promise.all(
+      tickets.map(async ({ ticketId, quantity }) => {
+        const ticket = await prisma.ticket.findUnique({
+          where: { id: ticketId },
+          include: { Event: true },
+        });
 
-    if (ticket.status !== TicketStatus.Available) {
-      throw new ConflictError("Ticket is not available for reservation");
-    }
+        if (!ticket) {
+          throw new NotFoundError(`Ticket ${ticketId} not found`);
+        }
 
-    const reservation = await prisma.$transaction(async (tx) => {
-      const updatedTicket = await tx.ticket.update({
-        where: { id: ticketId, status: TicketStatus.Available },
-        data: { status: TicketStatus.Booked },
-      });
+        if (ticket.status !== TicketStatus.Available) {
+          throw new ConflictError(`Ticket ${ticketId} is not available`);
+        }
 
-      if (!updatedTicket) {
-        throw new ConflictError("Ticket is no longer available");
+        // Check for existing reservations for this ticket and user
+        const existingReservation = await prisma.reservation.findFirst({
+          where: {
+            userId,
+            tickets: {
+              some: { id: ticketId }
+            },
+            status: { in: [ReservationStatus.Pending, ReservationStatus.Confirmed] },
+          },
+        });
+
+        if (existingReservation) {
+          throw new ConflictError(`You already have a reservation for ticket ${ticketId}`);
+        }
+
+        return { ticket, quantity };
+      })
+    );
+
+    // If we get here, all validations passed
+    const result = await prisma.$transaction(async (tx) => {
+      const reservations = [];
+
+      for (const { ticket, quantity } of ticketDetails) {
+        // Create a single reservation for each ticket type with the specified quantity
+        const reservation = await tx.reservation.create({
+          data: {
+            userId,
+            tickets: {
+              connect: Array(quantity).fill(0).map(() => ({
+                id: ticket.id
+              }))
+            },
+            status: ReservationStatus.Pending,
+          },
+          include: {
+            tickets: { 
+              include: { 
+                Event: true 
+              } 
+            },
+            user: { 
+              select: { 
+                id: true, 
+                name: true, 
+                email: true 
+              } 
+            },
+          },
+        });
+
+        // Update all reserved tickets
+        await tx.ticket.updateMany({
+          where: { 
+            id: { 
+              in: reservation.tickets.map(t => t.id) 
+            } 
+          },
+          data: { 
+            status: TicketStatus.Booked,
+            reservationId: reservation.id
+          },
+        });
+
+        reservations.push(reservation);
       }
 
-      return tx.reservation.create({
-        data: {
-          userId,
-          ticketId,
-          status: ReservationStatus.Confirmed,
-        },
-      });
+      return reservations;
     });
 
-    return successResponse(reservation, "Reservation created successfully", 201);
+    return successResponse(result, "Tickets reserved successfully", 201);
   } catch (error) {
+    console.error('Reservation Error:', error);
     return errorResponse(error);
   }
 }

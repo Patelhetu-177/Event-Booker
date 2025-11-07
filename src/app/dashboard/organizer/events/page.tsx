@@ -5,7 +5,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/dashboard-layout";
-import { Role } from "@prisma/client";
+const Role = {
+  Admin: 'Admin',
+  Organizer: 'Organizer',
+  Customer: 'Customer'
+} as const;
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
