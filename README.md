@@ -1,4 +1,4 @@
-# Event Booking System
+# EventSphere
 
 A comprehensive event booking and management system built with Next.js, TypeScript, and Prisma. This application allows users to discover events, make reservations, process payments, and provides administrative tools for event organizers.
 

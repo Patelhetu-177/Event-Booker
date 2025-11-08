@@ -111,7 +111,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const initializeAuth = async () => {
       const storedAccessToken = localStorage.getItem("accessToken");
-      console.log("initializeAuth: Starting. Stored token:", storedAccessToken);
       if (storedAccessToken) {
         setAccessToken(storedAccessToken);
         const decodedUser = decodeAccessToken(storedAccessToken);
@@ -121,7 +120,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             localStorage.setItem("userRole", decodedUser.role);
           }
           setUser(decodedUser);
-          console.log("initializeAuth: Decoded user, setting state:", decodedUser);
         } else {
           console.error("initializeAuth: Decoded user is null, attempting refresh.");
           localStorage.removeItem("accessToken");
@@ -149,17 +147,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const handleRouteChange = () => {
       const currentPath = window.location.pathname;
-      console.log("Route Protection: isInitialized:", isInitialized, "loading:", loading, "isAuthenticated:", isAuthenticated, "user:", user?.email, "currentPath:", currentPath);
       
       if (!loading && isInitialized) {
         const isProtected = currentPath.startsWith("/dashboard");
         const isAuthPage = currentPath === "/login" || currentPath === "/register";
 
         if (isAuthenticated && isAuthPage) {
-          console.log("Route Protection: Authenticated on auth page, redirecting to /dashboard");
           router.replace("/dashboard");
         } else if (!isAuthenticated && isProtected) {
-          console.log("Route Protection: Unauthenticated on protected page, redirecting to /login");
           const loginUrl = new URL("/login", window.location.origin);
           loginUrl.searchParams.set("redirect", currentPath);
           router.replace(loginUrl.pathname + loginUrl.search);
@@ -185,7 +180,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response = await fetch(`${getBaseUrl()}/api/auth/login`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
+           "Content-Type": "application/json",
         },
         body: JSON.stringify({ email, password }),
       });

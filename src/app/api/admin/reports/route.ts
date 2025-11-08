@@ -7,6 +7,13 @@ import { Role } from "@prisma/client";
 export async function GET(req: NextRequest) {
   console.log('[/api/admin/reports] Starting request processing');
   try {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      console.log('[/api/admin/reports] Database connection successful');
+    } catch (dbError) {
+      console.error('[/api/admin/reports] Database connection error:', dbError);
+      throw new Error('Database connection error');
+    }
     const userRole = req.headers.get("x-user-role");
     const authHeader = req.headers.get("authorization");
     
@@ -24,15 +31,6 @@ export async function GET(req: NextRequest) {
 
     if (userRole !== Role.Admin) {
       throw new ForbiddenError("Admin access required");
-    }
-
-    // Test database connection first
-    try {
-      await prisma.$queryRaw`SELECT 1`;
-      console.log('[/api/admin/reports] Database connection successful');
-    } catch (dbError) {
-      console.error('[/api/admin/reports] Database connection error:', dbError);
-      throw new Error('Database connection error');
     }
 
     let totalUsers, totalEvents, totalReservations, totalTickets;
@@ -191,6 +189,7 @@ export async function GET(req: NextRequest) {
       eventsByMonth: eventsByMonth.length
     };
 
+    console.log('[/api/admin/reports] Report data generated successfully');
     return successResponse(reportData, "Reports retrieved successfully");
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
