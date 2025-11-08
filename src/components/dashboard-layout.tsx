@@ -249,13 +249,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
           <div className="flex-1 lg:flex lg:justify-end">
             <div className="flex items-center gap-2">
-              <span className="hidden text-sm text-gray-500 dark:text-gray-400 sm:inline-block">
+              <span className="hidden text-sm text-gray-500 dark:text-gray-400 md:inline-block">
                 Welcome back,{' '}
                 <span className="font-medium text-gray-900 dark:text-white">
                   {user.name || user.email.split('@')[0]}
                 </span>
               </span>
-              <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-purple-500 text-xs font-medium text-white">
+              <div className="hidden h-8 w-8 items-center justify-center rounded-full bg-gradient-to-r from-blue-500 to-purple-500 text-xs font-medium text-white">
                 {user.name?.[0]?.toUpperCase() || user.email[0].toUpperCase()}
               </div>
             </div>
