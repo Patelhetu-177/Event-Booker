@@ -142,7 +142,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshAccessToken]);
 
   useEffect(() => {
-    // Only run on client-side
     if (typeof window === 'undefined') return;
 
     const handleRouteChange = () => {

@@ -32,40 +32,35 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
     });
 
-    const totalEvents = events.length;
-
-    const totalTickets = await prisma.ticket.count({
-      where: {
-        Event: whereClause
-      }
-    });
-
+    // First get all event IDs for the organizer
     const eventIds = (await prisma.event.findMany({
       where: whereClause,
       select: { id: true }
     })).map(event => event.id);
 
+    const totalEvents = eventIds.length;
+
+    // Count tickets for these events
+    const totalTickets = await prisma.ticket.count({
+      where: {
+        eventId: { in: eventIds }
+      }
+    });
+
     let totalReservations = 0;
     
     if (eventIds.length > 0) {
-      const columnInfo = await prisma.$queryRaw<Array<{ column_name: string }>>`
-        SELECT column_name 
-        FROM information_schema.columns 
-        WHERE table_name = 'Ticket' 
-        AND column_name IN ('reservationId', 'reservation_id')
-        LIMIT 1
-      `;
+      // Count distinct reservations for the organizer's events
+      const reservationsResult = await prisma.ticket.groupBy({
+        by: ['reservationId'],
+        where: {
+          eventId: { in: eventIds },
+          reservationId: { not: null }
+        },
+        _count: true
+      });
       
-      const reservationIdColumn = columnInfo[0]?.column_name || 'reservationId';
-      
-      const reservationsResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(DISTINCT ${reservationIdColumn}) as count
-        FROM "public"."tickets"
-        WHERE "eventId" IN (${eventIds.join(",")})
-        AND ${reservationIdColumn} IS NOT NULL
-      `;
-      
-      totalReservations = Number(reservationsResult[0]?.count) || 0;
+      totalReservations = reservationsResult.length;
     }
 
     let totalRevenue = 0;
@@ -81,24 +76,24 @@ export async function GET(req: NextRequest) {
     }> = [];
 
     if (eventIds.length > 0) {
-      const reservationIds = (await prisma.ticket.findMany({
+      // Get the sum of all completed payments for the organizer's events
+      const revenueResult = await prisma.payment.aggregate({
         where: {
-          eventId: { in: eventIds },
-          reservationId: { not: null }
+          status: 'Completed',
+          reservation: {
+            tickets: {
+              some: {
+                eventId: { in: eventIds }
+              }
+            }
+          }
         },
-        distinct: ['reservationId'],
-        select: { reservationId: true }
-      })).map(t => t.reservationId);
+        _sum: {
+          amount: true
+        }
+      });
       
-      if (reservationIds.length > 0) {
-        const revenueResult = await prisma.$queryRaw<Array<{ sum: number }>>`
-          SELECT SUM(amount)::float as sum
-          FROM "public"."payments"
-          WHERE status = 'Completed'
-          AND "reservationId" IN (${Prisma.join(reservationIds)})
-        `;
-        totalRevenue = revenueResult[0]?.sum || 0;
-      }
+      totalRevenue = revenueResult._sum.amount || 0;
     }
 
     const recentReservations = await prisma.reservation.findMany({

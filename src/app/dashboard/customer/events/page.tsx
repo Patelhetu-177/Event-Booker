@@ -157,6 +157,7 @@ export default function CustomerEventsPage() {
 
     const now = new Date();
     const oneDayInMs = 24 * 60 * 60 * 1000;
+    const oneHourInMs = 60 * 60 * 1000;
 
     // If no events, return empty categories
     if (!Array.isArray(events) || events.length === 0) {
@@ -164,7 +165,13 @@ export default function CustomerEventsPage() {
       return { current, upcoming, past };
     }
 
-    events.forEach(event => {
+    // Sort events by date
+    const sortedEvents = [...events].sort((a, b) => {
+      if (!a.date || !b.date) return 0;
+      return new Date(a.date).getTime() - new Date(b.date).getTime();
+    });
+
+    sortedEvents.forEach(event => {
       if (!event || !event.date) {
         console.warn('Invalid event data:', event);
         return;
@@ -182,24 +189,22 @@ export default function CustomerEventsPage() {
 
         const timeDiff = eventDate.getTime() - now.getTime();
         const isToday = eventDate.toDateString() === now.toDateString();
-        const isCurrentEvent = timeDiff <= oneDayInMs && timeDiff >= 0;
+        const isHappeningNow = timeDiff <= oneHourInMs && timeDiff >= -oneHourInMs * 2; // 1 hour before to 2 hours after
+        const isUpcoming = timeDiff > 0 && !isHappeningNow;
+        const isPast = timeDiff < 0 && !isHappeningNow;
 
-        console.log(`  isToday: ${isToday}, isCurrentEvent: ${isCurrentEvent}, timeDiff: ${timeDiff}ms`);
+        console.log(`  isToday: ${isToday}, isHappeningNow: ${isHappeningNow}, isUpcoming: ${isUpcoming}, isPast: ${isPast}, timeDiff: ${timeDiff}ms`);
 
-        // For debugging, let's show all events in upcoming for now
-        upcoming.push(event);
-        /*
-        if (isToday || isCurrentEvent) {
-          console.log(`  -> Current event`);
+        if (isHappeningNow) {
+          console.log(`  -> Happening Now event`);
           current.push(event);
-        } else if (timeDiff > 0) {
+        } else if (isUpcoming) {
           console.log(`  -> Upcoming event`);
           upcoming.push(event);
-        } else {
+        } else if (isPast) {
           console.log(`  -> Past event`);
           past.push(event);
         }
-        */
       } catch (error) {
         console.error('Error processing event:', error, event);
       }
@@ -335,37 +340,11 @@ export default function CustomerEventsPage() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6">
+        <div className="flex items-center justify-center min-h-[60vh]">
           <div className="flex flex-col items-center space-y-4">
             <div className="h-12 w-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-            <div className="text-center space-y-1">
-              <p className="text-lg font-medium">Loading Events</p>
-              <p className="text-sm text-muted-foreground">Please wait while we load the latest events...</p>
-            </div>
+            <p className="text-muted-foreground">Loading events...</p>
           </div>
-          {process.env.NODE_ENV === 'development' && (
-            <div className="mt-6 p-4 bg-muted/20 rounded-lg w-full max-w-md">
-              <p className="text-sm font-medium mb-2 text-center">Loading State</p>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Auth Status:</span>
-                  <span>{authLoading ? 'Checking...' : isAuthenticated ? 'Authenticated' : 'Not Authenticated'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Role:</span>
-                  <span>{user?.role || 'Unknown'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Events Loaded:</span>
-                  <span>{events.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Access Token:</span>
-                  <span>{accessToken ? 'Yes' : 'No'}</span>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </DashboardLayout>
     );
