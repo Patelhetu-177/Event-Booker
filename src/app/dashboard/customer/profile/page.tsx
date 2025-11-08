@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/dashboard-layout";
@@ -37,38 +37,63 @@ export default function CustomerProfilePage() {
     }
   }, [loading, isAuthenticated, hasRole, router]);
 
+  const fetchUserStats = useCallback(async () => {
+    if (!user) return;
+    
+    try {
+      const token = localStorage.getItem('accessToken');
+      if (!token) {
+        console.error('No access token found');
+        return;
+      }
+
+      const response = await fetch(`/api/users/${user.id}/stats`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        },
+        credentials: 'include',
+        cache: 'no-store'
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setStats({
+          memberSince: user.createdAt ? new Date(user.createdAt).toLocaleDateString() : new Date().toLocaleDateString(),
+          totalReservations: data.totalReservations || 0,
+          eventsAttended: data.eventsAttended || 0
+        });
+      }
+    } catch (err) {
+      console.error('Failed to fetch user stats:', err);
+    }
+  }, [user]);
+
   useEffect(() => {
     if (user) {
       setFormData({
         name: user.name || "",
         email: user.email || "",
       });
-      
-      const fetchStats = async () => {
-        try {
-          const token = localStorage.getItem("accessToken");
-          const response = await fetch(`${getBaseUrl()}/api/users/${user.id}/stats`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
-          });
-          
-          if (response.ok) {
-            const data = await response.json();
-            setStats({
-              memberSince: user.createdAt ? new Date(user.createdAt).toLocaleDateString() : new Date().toLocaleDateString(),
-              totalReservations: data.totalReservations || 0,
-              eventsAttended: data.eventsAttended || 0
-            });
-          }
-        } catch (err) {
-          console.error('Failed to fetch user stats:', err);
-        }
-      };
-      
-      fetchStats();
+      fetchUserStats();
     }
-  }, [user]);
+  }, [user, fetchUserStats]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchUserStats();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchUserStats]);
 
   const handleSave = async () => {
     if (!user) return;

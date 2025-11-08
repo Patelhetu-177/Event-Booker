@@ -24,8 +24,7 @@ interface Event {
   date: string;
   createdAt: string;
   _count: {
-    tickets: number;
-    reservations: number;
+    Ticket: number; 
   };
   organizer: {
     name: string;
@@ -58,13 +57,13 @@ export default function OrganizerEventsPage() {
     try {
       setLoadingData(true);
       const token = localStorage.getItem("accessToken");
-      const response = await fetch(`${getBaseUrl()}/api/organizer/reports`, {
+      const response = await fetch(`${getBaseUrl()}/api/events`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
       if (response.ok) {
         const data = await response.json();
-        setEvents(data.data?.events || []);
+        setEvents(data.data || []); // Changed from data.data?.events || []
         setError(null);
       } else {
         const errorData = await response.json();
@@ -216,11 +215,11 @@ export default function OrganizerEventsPage() {
 
                       <div className="grid grid-cols-2 gap-2 sm:gap-4 pt-1 sm:pt-2">
                         <div className="text-center p-2 bg-muted/20 rounded">
-                          <p className="text-xl sm:text-2xl font-bold">{event._count.tickets}</p>
+                          <p className="text-xl sm:text-2xl font-bold">{event._count.Ticket}</p>
                           <p className="text-xs text-muted-foreground">Tickets</p>
                         </div>
                         <div className="text-center p-2 bg-muted/20 rounded">
-                          <p className="text-xl sm:text-2xl font-bold">{event._count.reservations}</p>
+                          <p className="text-xl sm:text-2xl font-bold">{0}</p>
                           <p className="text-xs text-muted-foreground">Bookings</p>
                         </div>
                       </div>

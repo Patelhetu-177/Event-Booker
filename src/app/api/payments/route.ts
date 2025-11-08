@@ -5,10 +5,21 @@ import { errorResponse, successResponse } from "@/lib/response";
 import { NotFoundError, UnauthorizedError, ConflictError, ForbiddenError } from "@/lib/errors";
 import { PaymentStatus, ReservationStatus } from "@prisma/client";
 
-const paymentSchema = z.object({
-  reservationId: z.string().uuid("Invalid reservation ID"),
+const basePaymentSchema = z.object({
+  reservationId: z.string().min(1, "Reservation ID is required"),
   amount: z.number().positive("Amount must be a positive number"),
 });
+
+const paymentSchema = basePaymentSchema.refine(
+  (data) => {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(data.reservationId);
+  },
+  {
+    message: "Invalid reservation ID format",
+    path: ["reservationId"]
+  }
+);
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,7 +29,21 @@ export async function POST(req: NextRequest) {
     }
 
     const body = await req.json();
-    const { reservationId, amount } = paymentSchema.parse(body);
+    console.log('Received payment request:', { body, headers: Object.fromEntries(req.headers.entries()) });
+    
+    // First parse with base schema to get the data
+    const baseResult = basePaymentSchema.safeParse(body);
+    if (!baseResult.success) {
+      console.error('Base validation error:', baseResult.error);
+      return errorResponse(new Error('Invalid request data: ' + JSON.stringify(baseResult.error.issues)), 400);
+    }
+    
+    const { reservationId, amount } = baseResult.data;
+    
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(reservationId)) {
+      console.warn('Non-UUID reservation ID detected:', reservationId);
+    }
 
     const reservation = await prisma.reservation.findUnique({
       where: { id: reservationId },
@@ -45,31 +70,41 @@ export async function POST(req: NextRequest) {
 
     const paymentStatus = paymentSuccessful ? PaymentStatus.Completed : PaymentStatus.Failed;
 
-    const payment = await prisma.$transaction(async (tx) => {
-      const existingPayment = await tx.payment.findUnique({
+    const [payment, updatedReservation] = await prisma.$transaction([
+      // Update or create payment
+      prisma.payment.upsert({
         where: { reservationId },
+        update: {
+          amount,
+          status: paymentStatus,
+        },
+        create: {
+          reservationId,
+          amount,
+          status: paymentStatus,
+        },
+      }),
+      
+      // Update reservation status if payment is successful
+      prisma.reservation.update({
+        where: { id: reservationId },
+        data: {
+          status: paymentSuccessful ? ReservationStatus.Confirmed : ReservationStatus.Pending,
+        },
+        include: {
+          tickets: true,
+          payment: true,
+        },
+      })
+    ]);
+
+    // Update ticket statuses if payment was successful
+    if (paymentSuccessful) {
+      await prisma.ticket.updateMany({
+        where: { reservationId },
+        data: { status: 'Booked' },
       });
-
-      if (existingPayment) {
-        return tx.payment.update({
-          where: { reservationId },
-          data: {
-            amount,
-            status: paymentStatus,
-          },
-        });
-      } else {
-        return tx.payment.create({
-          data: {
-            reservationId,
-            amount,
-            status: paymentStatus,
-          },
-        });
-      }
-    });
-
-    if (!paymentSuccessful) {
+    } else {
       return errorResponse(new ConflictError("Payment failed. Please try again."));
     }
 

@@ -13,7 +13,7 @@ export function successResponse<T>(data: T, message: string = "Success", status:
   return NextResponse.json({ success: true, data, message }, { status });
 }
 
-export function errorResponse(error: unknown): NextResponse<ApiResponse<null>> {
+export function errorResponse(error: unknown, status: number = 500): NextResponse<ApiResponse<null>> {
   if (error instanceof ZodError) {
     return NextResponse.json({ success: false, message: "Validation Error", errors: error.issues }, { status: 400 });
   }
@@ -23,5 +23,5 @@ export function errorResponse(error: unknown): NextResponse<ApiResponse<null>> {
   }
 
   console.error("Unhandled API Error:", error);
-  return NextResponse.json({ success: false, message: "Internal Server Error" }, { status: 500 });
+  return NextResponse.json({ success: false, message: "Internal Server Error" }, { status });
 }

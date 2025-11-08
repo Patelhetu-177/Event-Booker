@@ -21,7 +21,7 @@ interface EventDetail {
   date: string;
   createdAt: string;
   organizer: { id: string; name: string; email: string };
-  tickets: Ticket[];
+  Ticket: Ticket[]; // Changed from tickets: Ticket[]
   reservations: Reservation[];
 }
 
@@ -239,7 +239,7 @@ export default function OrganizerEventDetailsPage() {
   }
 
   const eventDate = formatEventDate(event.date);
-  const availableTickets = (event.tickets || []).filter(ticket => ticket.status === TicketStatus.Available);
+  const availableTickets = (event.Ticket || []).filter(ticket => ticket.status === TicketStatus.Available);
   const totalRevenue = (event.reservations || [])
     .filter(res => res.payment?.status === "Completed")
     .reduce((sum, res) => sum + (res.payment?.amount || 0), 0);
@@ -298,7 +298,7 @@ export default function OrganizerEventDetailsPage() {
                 <CardDescription>All tickets available for this event</CardDescription>
               </CardHeader>
               <CardContent>
-                {event.tickets.length === 0 ? (
+                {event.Ticket.length === 0 ? (
                   <div className="text-center py-6">
                     <TicketIcon className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
                     <h3 className="text-lg font-semibold mb-2">No Tickets Yet</h3>
@@ -310,7 +310,7 @@ export default function OrganizerEventDetailsPage() {
                   </div>
                 ) : (
                   <div className="space-y-3">
-                    {event.tickets.map((ticket, index) => (
+                    {event.Ticket.map((ticket, index) => (
                       <div key={ticket.id} className="flex items-center justify-between p-3 border rounded">
                         <div className="min-w-0">
                           <p className="font-medium text-sm sm:text-base truncate">Ticket #{index + 1}</p>
@@ -387,7 +387,7 @@ export default function OrganizerEventDetailsPage() {
               <CardContent className="p-4 sm:p-6 pt-0 space-y-3 sm:space-y-4 text-sm sm:text-base">
                 <div className="flex items-center justify-between py-2 border-b">
                   <span className="text-muted-foreground">Total Tickets</span>
-                  <span className="font-medium">{event.tickets.length}</span>
+                  <span className="font-medium">{event.Ticket.length}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b">
                   <span className="text-muted-foreground">Available</span>

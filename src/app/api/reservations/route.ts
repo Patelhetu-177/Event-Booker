@@ -7,7 +7,15 @@ import { Role, TicketStatus, ReservationStatus } from "@prisma/client";
 
 const createReservationSchema = z.object({
   tickets: z.array(z.object({
-    ticketId: z.string().uuid("Invalid ticket ID"),
+    ticketId: z.string().refine(
+      (val) => {
+        // Accept both UUID and CUID formats
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89abAB][0-9a-f]{3}-[0-9a-f]{12}$/i.test(val);
+        const isCUID = /^[a-z0-9]{25}$/i.test(val);
+        return isUUID || isCUID;
+      },
+      { message: "Invalid ticket ID format. Must be a valid UUID or CUID." }
+    ),
     quantity: z.number().int().positive("Quantity must be at least 1").default(1)
   })).min(1, "At least one ticket is required"),
 });
@@ -28,7 +36,25 @@ export async function GET(req: NextRequest) {
         where: { userId },
         include: {
           user: { select: { id: true, name: true, email: true } },
-          tickets: { include: { Event: true } },
+          tickets: { 
+            include: { 
+              Event: {
+                select: {
+                  id: true,
+                  title: true,
+                  description: true,
+                  date: true,
+                  organizer: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true
+                    }
+                  }
+                }
+              } 
+            } 
+          },
         },
         orderBy: { createdAt: "desc" },
       });
@@ -36,7 +62,25 @@ export async function GET(req: NextRequest) {
       reservations = await prisma.reservation.findMany({
         include: {
           user: { select: { id: true, name: true, email: true } },
-          tickets: { include: { Event: true } },
+          tickets: { 
+            include: { 
+              Event: {
+                select: {
+                  id: true,
+                  title: true,
+                  description: true,
+                  date: true,
+                  organizer: {
+                    select: {
+                      id: true,
+                      name: true,
+                      email: true
+                    }
+                  }
+                }
+              } 
+            } 
+          },
         },
         orderBy: { createdAt: "desc" },
       });

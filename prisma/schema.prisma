@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  schemas  = ["public"]
 }
 
 model User {
@@ -18,6 +19,8 @@ model User {
   events        Event[]
   refreshTokens RefreshToken[]
   reservations  Reservation[]
+
+  @@schema("public")
 }
 
 model Event {
@@ -30,18 +33,21 @@ model Event {
   updatedAt   DateTime @updatedAt
   organizer   User     @relation(fields: [organizerId], references: [id])
   Ticket      Ticket[]
+
+  @@schema("public")
 }
 
 model Reservation {
-  id          String        @id @default(cuid())
-  userId      String
-  status      ReservationStatus @default(Pending)
-  createdAt   DateTime      @default(now())
-  payment     Payment?
-  tickets     Ticket[]      // Changed to one-to-many relationship
-  user        User          @relation(fields: [userId], references: [id])
-  
+  id        String            @id @default(cuid())
+  userId    String
+  status    ReservationStatus @default(Pending)
+  createdAt DateTime          @default(now())
+  payment   Payment?
+  tickets   Ticket[] 
+  user      User              @relation(fields: [userId], references: [id])
+
   @@map("reservations")
+  @@schema("public")
 }
 
 model Payment {
@@ -51,6 +57,9 @@ model Payment {
   status        PaymentStatus @default(Pending)
   createdAt     DateTime      @default(now())
   reservation   Reservation   @relation(fields: [reservationId], references: [id])
+
+  @@map("payments")
+  @@schema("public")
 }
 
 model RefreshToken {
@@ -61,41 +70,52 @@ model RefreshToken {
   createdAt DateTime @default(now())
   expiresAt DateTime
   user      User     @relation(fields: [userId], references: [id])
+
+  @@schema("public")
 }
 
 model Ticket {
-  id             String        @id @default(cuid())
-  eventId        String
-  price          Float
-  status         TicketStatus  @default(Available)
-  createdAt      DateTime      @default(now())
-  reservation   Reservation?   @relation(fields: [reservationId], references: [id])
-  reservationId String?        // Add this line
-  Event         Event          @relation(fields: [eventId], references: [id])
-  
+  id            String       @id @default(uuid()) 
+  eventId       String
+  price         Float
+  status        TicketStatus @default(Available)
+  createdAt     DateTime     @default(now())
+  reservation   Reservation? @relation(fields: [reservationId], references: [id])
+  reservationId String?
+  Event         Event        @relation(fields: [eventId], references: [id])
+
   @@map("tickets")
+  @@schema("public")
 }
 
 enum Role {
   Admin
   Organizer
   Customer
+
+  @@schema("public")
 }
 
 enum TicketStatus {
   Available
   Booked
   Cancelled
+
+  @@schema("public")
 }
 
 enum ReservationStatus {
   Pending
   Confirmed
   Cancelled
+
+  @@schema("public")
 }
 
 enum PaymentStatus {
   Pending
   Completed
   Failed
+
+  @@schema("public")
 }

@@ -167,7 +167,7 @@ export default function Home() {
             Ready to Create Your Next Event?
           </h2>
           <p className="text-xl text-blue-100 mb-8">
-            Join thousands of event organizers who trust EventBooker to manage their events
+            Join thousands of event organizers who trust EventSphere to manage their events
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <Link href="/register">
@@ -191,7 +191,7 @@ export default function Home() {
               <div className="flex items-center justify-center space-x-3 mb-6">
                 <Calendar className="h-10 w-10 text-blue-400" />
                 <span className="text-3xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  EventBooker
+                  EventSphere
                 </span>
               </div>
               <p className="text-xl text-gray-300 max-w-2xl mx-auto leading-relaxed">
@@ -259,7 +259,7 @@ export default function Home() {
 
             <div className="border-t border-gray-700 pt-8">
               <p className="text-gray-400 text-sm">
-                &copy; 2025 EventBooker. 
+                &copy; 2025 EventSphere. 
               </p>
             </div>
           </div>

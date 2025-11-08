@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { Prisma, prisma } from "@/lib/prisma";
 import { errorResponse, successResponse } from "@/lib/response";
 import { ForbiddenError, UnauthorizedError } from "@/lib/errors";
 import { Role } from "@prisma/client";
@@ -60,7 +60,7 @@ export async function GET(req: NextRequest) {
       
       const reservationsResult = await prisma.$queryRaw<Array<{ count: bigint }>>`
         SELECT COUNT(DISTINCT ${reservationIdColumn}) as count
-        FROM "public"."Ticket"
+        FROM "public"."tickets"
         WHERE "eventId" IN (${eventIds.join(",")})
         AND ${reservationIdColumn} IS NOT NULL
       `;
@@ -70,6 +70,16 @@ export async function GET(req: NextRequest) {
 
     let totalRevenue = 0;
     
+    let recentPayments: Array<{
+      id: string;
+      amount: number;
+      createdAt: Date;
+      reservation: {
+        user: { name: string | null };
+        tickets: Array<{ Event: { title: string } }>;
+      };
+    }> = [];
+
     if (eventIds.length > 0) {
       const reservationIds = (await prisma.ticket.findMany({
         where: {
@@ -81,16 +91,13 @@ export async function GET(req: NextRequest) {
       })).map(t => t.reservationId);
       
       if (reservationIds.length > 0) {
-        const revenueResult = await prisma.payment.aggregate({
-          where: {
-            status: "Completed",
-            reservationId: { in: reservationIds.filter((id): id is string => id !== null) }
-          },
-          _sum: {
-            amount: true
-          }
-        });
-        totalRevenue = revenueResult._sum.amount || 0;
+        const revenueResult = await prisma.$queryRaw<Array<{ sum: number }>>`
+          SELECT SUM(amount)::float as sum
+          FROM "public"."payments"
+          WHERE status = 'Completed'
+          AND "reservationId" IN (${Prisma.join(reservationIds)})
+        `;
+        totalRevenue = revenueResult[0]?.sum || 0;
       }
     }
 
@@ -135,35 +142,39 @@ export async function GET(req: NextRequest) {
       select: { id: true }
     })).map(r => r.id);
 
-    const recentPayments = await prisma.payment.findMany({
-      take: 5,
-      where: {
-        status: "Completed",
+    if (reservationIds.length > 0) {
+      const recentPaymentsRaw = await prisma.$queryRaw<Array<{
+        id: string;
+        amount: number;
+        createdAt: Date;
+        user_name: string;
+        event_title: string;
+      }>>`
+        SELECT
+          p.id,
+          p.amount,
+          p."createdAt",
+          u.name AS user_name,
+          (SELECT e.title FROM "public"."tickets" AS t_sub JOIN "public"."Event" AS e ON t_sub."eventId" = e.id WHERE t_sub."reservationId" = r.id LIMIT 1) AS event_title
+        FROM "public"."payments" AS p
+        JOIN "public"."reservations" AS r ON p."reservationId" = r.id
+        JOIN "public"."User" AS u ON r."userId" = u.id
+        WHERE p.status = 'Completed'
+        AND r.id IN (${Prisma.join(reservationIds)})
+        ORDER BY p."createdAt" DESC
+        LIMIT 5;
+      `;
+
+      recentPayments = recentPaymentsRaw.map(payment => ({
+        id: payment.id,
+        amount: payment.amount,
+        createdAt: payment.createdAt,
         reservation: {
-          id: { in: reservationIds }
+          user: { name: payment.user_name },
+          tickets: [{ Event: { title: payment.event_title } }]
         }
-      },
-      orderBy: { createdAt: "desc" },
-      select: {
-        id: true,
-        amount: true,
-        createdAt: true,
-        reservation: {
-          select: {
-            user: {
-              select: { name: true }
-            },
-            tickets: {
-              select: {
-                Event: {
-                  select: { title: true }
-                }
-              }
-            }
-          }
-        }
-      },
-    });
+      }));
+    }
 
     const recentActivity = [
       ...recentReservations.map(reservation => ({
@@ -226,6 +237,7 @@ export async function GET(req: NextRequest) {
 
     return successResponse(reportData, "Organizer reports retrieved successfully");
   } catch (error) {
+    console.error("Error in GET /api/organizer/reports:", error);
     return errorResponse(error);
   }
 }

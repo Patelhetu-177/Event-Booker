@@ -6,7 +6,7 @@
       "dom.iterable",
       "esnext"
     ],
-    "jsx": "preserve", // Changed from "preserve" for direct JSX transformation
+    "jsx": "react-jsx", // Changed from "preserve" for direct JSX transformation
     "jsxImportSource": "react", // Explicitly declare JSX runtime
     "esModuleInterop": true,
     "moduleResolution": "bundler",
@@ -38,7 +38,8 @@
     "jest.setup.ts",
     "jest.config.ts",
     "**/*.test.ts",
-    "**/*.test.tsx"
+    "**/*.test.tsx",
+    ".next/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

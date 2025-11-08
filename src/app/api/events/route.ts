@@ -14,7 +14,12 @@ const createEventSchema = z.object({
 export async function GET() {
   try {
     const events = await prisma.event.findMany({
-      include: { organizer: { select: { id: true, name: true, email: true } } },
+      include: {
+        organizer: { select: { id: true, name: true, email: true } },
+        _count: {
+          select: { Ticket: true }
+        }
+      },
       orderBy: { date: "asc" },
     });
     return successResponse(events, "Events retrieved successfully");

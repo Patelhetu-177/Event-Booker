@@ -17,7 +17,7 @@ interface EventDetail {
   description?: string;
   date: string;
   organizer: { id: string; name: string; email: string };
-  tickets: Ticket[];
+  Ticket: Ticket[]; 
 }
 
 interface Ticket {
@@ -54,6 +54,35 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
     }
   }, [loading, isAuthenticated, hasRole, router]);
 
+  const fetchEventData = async () => {
+    if (!accessToken) return;
+    
+    try {
+      setLoadingAction(true);
+      const response = await fetch(`${getBaseUrl()}/api/events/${id}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'x-user-id': user?.id || '',
+          'x-user-role': user?.role || ''
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch event data');
+      }
+      
+      const eventData = await response.json();
+      setEvent(eventData);
+      return eventData;
+    } catch (error) {
+      console.error('Error fetching event data:', error);
+      setError('Failed to load event data. Please try again.');
+      return null;
+    } finally {
+      setLoadingAction(false);
+    }
+  };
+
   useEffect(() => {
     const fetchEvent = async () => {
       if (!accessToken) return;
@@ -85,66 +114,140 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
   const handleQuantityChange = (ticketId: string, quantity: number) => {
     setSelectedTickets(prev => ({
       ...prev,
-      [ticketId]: Math.max(0, quantity) // Ensure quantity is not negative
+      [ticketId]: Math.max(0, quantity) 
     }));
   };
 
   const handleReserveTickets = async () => {
+    if (!event) return;
+    
+    setLoadingAction(true);
+    setError(null);
+    
     if (!accessToken || !user) {
       setError("You must be logged in to reserve tickets.");
+      setLoadingAction(false);
       return;
     }
 
-    // Filter out tickets with 0 quantity
-    const ticketsToReserve = Object.entries(selectedTickets)
-      .filter(([, quantity]) => quantity > 0)
-      .map(([ticketId, quantity]) => ({
-        ticketId,
-        quantity
-      }));
+    console.log('Available tickets:', event.Ticket);
+    console.log('Selected tickets:', selectedTickets);
+
+    const ticketsToReserve = [];
+
+    for (const [ticketId, quantity] of Object.entries(selectedTickets)) {
+      const qty = Number(quantity);
+      if (qty <= 0) continue;
+      
+      const ticket = event.Ticket.find(t => t.id === ticketId);
+      if (!ticket) {
+        console.error(`Ticket not found: ${ticketId}`);
+        continue;
+      }
+      
+      const isValidId = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89abAB][0-9a-f]{3}-[0-9a-f]{12}$/i.test(ticket.id) ||
+                      /^[a-z0-9]{25}$/i.test(ticket.id);
+      
+      if (!isValidId) {
+        console.error(`Invalid ticket ID format: ${ticket.id}`);
+        continue;
+      }
+      
+      ticketsToReserve.push({
+        ticketId: ticket.id,
+        quantity: qty
+      });
+    }
+    
+    console.log('Tickets to reserve:', ticketsToReserve);
 
     if (ticketsToReserve.length === 0) {
       setError("Please select at least one ticket to reserve.");
+      setLoadingAction(false);
       return;
     }
 
-    setLoadingAction(true);
-    setError(null);
+    console.log("Sending reservation data:", { tickets: ticketsToReserve });
+
     setIsReserving(true);
 
     try {
+      const requestBody = {
+        tickets: ticketsToReserve.map(ticket => ({
+          ticketId: ticket.ticketId,
+          quantity: ticket.quantity
+        }))
+      };
+
+      console.log('Sending request to:', `${getBaseUrl()}/api/reservations`);
+      console.log('Request headers:', {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken ? '***' : 'missing'}`,
+        'x-user-id': user?.id || 'missing',
+        'x-user-role': user?.role || 'missing',
+      });
+      console.log('Request body:', JSON.stringify(requestBody, null, 2));
+
       const response = await fetch(`${getBaseUrl()}/api/reservations`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
+          "Authorization": `Bearer ${accessToken}`,
           "x-user-id": user.id,
           "x-user-role": user.role,
         },
-        body: JSON.stringify({ tickets: ticketsToReserve }),
+        body: JSON.stringify(requestBody),
       });
 
-      const data = await response.json();
-
+      let data;
+      try {
+        data = await response.json();
+        console.log('API Response:', data);
+      } catch (jsonError) {
+        console.error('Failed to parse JSON response:', jsonError);
+        throw new Error('Invalid response from server');
+      }
+      
       if (!response.ok) {
-        throw new Error(data.message || "Failed to reserve tickets");
+        console.error('Reservation API Error:', {
+          status: response.status,
+          statusText: response.statusText,
+          data,
+          requestBody
+        });
+        
+        if (response.status === 400 && data.errors) {
+          // Handle validation errors
+          const errorMessages = data.errors.map((err: any) => 
+            `${err.path?.join('.') || 'Field'}: ${err.message}`
+          ).join('\n');
+          throw new Error(`Validation failed:\n${errorMessages}`);
+        }
+        
+        if (response.status === 409) {
+          await fetchEventData();
+          throw new Error('One or more tickets are no longer available. The page has been refreshed with the latest availability.');
+        }
+        
+        throw new Error(data.message || `Failed to reserve tickets: ${response.statusText}`);
       }
 
-      // Redirect to payment page with reservation details
-      const reservationIds = data.data.map((r: { id: string }) => r.id);
-      const totalAmount = data.data.reduce(
-        (sum: number, r: { ticket: { price: number } }) => sum + r.ticket.price, 
-        0
-      );
+      const totalAmount = ticketsToReserve.reduce((sum, { ticketId, quantity }) => {
+        const ticket = event?.Ticket.find(t => t.id === ticketId);
+        return sum + (ticket ? ticket.price * quantity : 0);
+      }, 0);
       
-      // Store reservation details in session storage for the payment page
+      const reservationIds = Array.isArray(data.data) 
+        ? data.data.map((r: { id: string }) => r.id)
+        : [data.data.id];
+      
       sessionStorage.setItem('pendingPayment', JSON.stringify({
         reservationIds,
         totalAmount,
-        eventId: id
+        eventId: id,
+        ticketCount: ticketsToReserve.reduce((sum, { quantity }) => sum + quantity, 0)
       }));
 
-      // Redirect to payment page
       router.push(`/dashboard/customer/reservations?amount=${totalAmount}&eventId=${id}`);
     } catch (error) {
       console.error("Error reserving tickets:", error);
@@ -188,12 +291,9 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
 
   const eventDate = formatEventDate(event.date);
 
-  // Get available tickets (status is Available and not already reserved by the user)
-  const availableTickets = event?.tickets?.filter(ticket => {
-    // Check if ticket is available
+  const availableTickets = event?.Ticket?.filter(ticket => {
     const isAvailable = ticket.status === TicketStatus.Available;
     
-    // Check if user already has a reservation for this ticket
     const userHasReservation = ticket.reservations?.some(
       r => r.status === 'PENDING' || r.status === 'CONFIRMED'
     );
@@ -201,16 +301,13 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
     return isAvailable && !userHasReservation;
   }) || [];
 
-  // Calculate total price
   const totalPrice = availableTickets.reduce((sum: number, ticket) => {
     const quantity = selectedTickets[ticket.id] || 0;
     return sum + (ticket.price * quantity);
   }, 0);
 
-  // Check if any tickets are selected
   const hasSelectedTickets = Object.values(selectedTickets).some(qty => qty > 0);
 
-  // Group tickets by price
   const ticketsByPrice = availableTickets.reduce((acc, ticket) => {
     const priceKey = ticket.price.toString();
     if (!acc[priceKey]) {
@@ -220,7 +317,6 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
     return acc;
   }, {} as Record<string, typeof availableTickets>);
 
-  // Render ticket cards
   const renderTickets = () => {
     if (!availableTickets.length) {
       return <p className="text-gray-500">No tickets available for this event.</p>;
@@ -233,7 +329,6 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
           const selectedQuantity = tickets.reduce(
             (sum, ticket) => sum + (selectedTickets[ticket.id] || 0), 0
           );
-          // Use first ticket for price display
           
           return (
             <Card key={`price-${price}`} className="p-4">
@@ -353,7 +448,7 @@ export default function EventDetailsPage({ params }: { params: Promise<{ id: str
                   Available Tickets
                 </CardTitle>
                 <CardDescription>
-                  {availableTickets.length} of {event.tickets.length} tickets available
+                  {availableTickets.length} of {event.Ticket.length} tickets available
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">

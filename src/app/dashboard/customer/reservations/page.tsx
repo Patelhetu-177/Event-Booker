@@ -73,23 +73,56 @@ export default function CustomerReservationsPage() {
     if (!accessToken) return;
 
     try {
-      const response = await fetch(`${getBaseUrl()}/api/reservations`, {
+      console.log('Fetching reservations...');
+      const timestamp = new Date().getTime();
+      const response = await fetch(`${getBaseUrl()}/api/reservations?t=${timestamp}`, {
         headers: {
           Authorization: `Bearer ${accessToken}`,
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         },
+        cache: 'no-store',
       });
-      const data = await response.json();
-
+      
       if (!response.ok) {
-        setError(data.message || "Failed to fetch reservations");
-        return;
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to fetch reservations');
       }
+      
+      const data = await response.json();
+      console.log('Raw API response:', data);
 
-      const processedReservations = (data.data || [] as ReservationResponse[]).map((reservation: ReservationResponse) => ({
-        ...reservation,
-        quantity: reservation.quantity || 1,
-        ticketNumber: `TKT-${reservation.id.slice(0, 8).toUpperCase()}`
-      }));
+      const processedReservations = (data.data || []).map((reservation: any) => {
+        console.log('Processing reservation:', reservation);
+        
+        // Get the first ticket (should only be one per reservation in this implementation)
+        const tickets = Array.isArray(reservation.tickets) ? reservation.tickets : [];
+        const ticket = tickets[0] || {};
+        
+        // Get event data from the ticket's Event relation
+        const eventData = ticket?.Event || {};
+        console.log('Event data:', eventData);
+        
+        return {
+          ...reservation,
+          ticket: {
+            id: ticket.id || `ticket-${reservation.id}`,
+            price: Number(ticket.price) || 0,
+            status: ticket.status || 'Available',
+            event: {
+              id: eventData.id || `event-${reservation.id}`,
+              title: eventData.title || 'Event information not available',
+              date: eventData.date || new Date().toISOString(),
+              organizer: eventData.organizer || { name: 'Unknown Organizer' }
+            }
+          },
+          quantity: Math.max(1, Number(reservation.quantity) || 1),
+          ticketNumber: `TKT-${(reservation.id || 'UNKNOWN').slice(0, 8).toUpperCase()}`
+        };
+      });
+      
+      console.log('Processed reservations:', processedReservations);
 
       setReservations(processedReservations);
     } catch (error) {
@@ -156,7 +189,15 @@ export default function CustomerReservationsPage() {
   };
 
   const handleMakePayment = async (reservationId: string, price: number, quantity: number) => {
-    const totalAmount = price * quantity;
+    console.log('handleMakePayment called with:', { reservationId, price, quantity });
+    
+    const totalAmount = Number(price) * Number(quantity);
+    if (isNaN(totalAmount) || totalAmount <= 0) {
+      const errorMsg = `Invalid payment amount: ${totalAmount} (price: ${price}, quantity: ${quantity})`;
+      console.error(errorMsg);
+      setError(errorMsg);
+      return;
+    }
     if (!accessToken || !user) {
       setError("You must be logged in to make a payment.");
       return;
@@ -164,87 +205,81 @@ export default function CustomerReservationsPage() {
     setLoadingAction(true);
     setError(null);
 
-    try {
-      setReservations(prevReservations =>
-        prevReservations.map(reservation =>
-          reservation.id === reservationId
-            ? {
-                ...reservation,
-                status: 'Pending' as const,
-                payment: {
-                  ...(reservation.payment || { id: `temp-${Date.now()}`, amount: totalAmount }),
-                  status: 'Pending' as const
-                }
-              }
-            : reservation
-        )
-      );
+    const requestBody = {
+      reservationId: String(reservationId).trim(),
+      amount: Number(totalAmount.toFixed(2))
+    };
+    
+    console.log('Payment request data:', {
+      requestBody,
+      types: {
+        reservationId: typeof requestBody.reservationId,
+        amount: typeof requestBody.amount,
+        isAmountNumber: Number.isFinite(requestBody.amount),
+        reservationIdLength: requestBody.reservationId.length
+      },
+      rawValues: {
+        reservationId: requestBody.reservationId,
+        amount: requestBody.amount
+      }
+    });
+    
+    console.log('Sending payment request:', {
+      url: `${getBaseUrl()}/api/payments`,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`,
+        'x-user-id': user.id,
+        'x-user-role': user.role,
+      },
+      body: requestBody
+    });
 
+    try {
       const response = await fetch(`${getBaseUrl()}/api/payments`, {
-        method: "POST",
+        method: 'POST',
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${accessToken}`,
-          "x-user-id": user.id,
-          "x-user-role": user.role,
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`,
+          'x-user-id': user.id,
+          'x-user-role': user.role,
         },
-        body: JSON.stringify({
-          reservationId,
-          amount: price, // Price per ticket
-          quantity,     // Number of tickets
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       const data = await response.json();
+      console.log('Payment response:', { status: response.status, data });
 
       if (!response.ok) {
-        throw new Error(data.message || "Payment failed");
+        const errorMessage = data.message || `Payment failed with status ${response.status}`;
+        console.error('Payment API error:', errorMessage, { response: data });
+        
+        if (response.status === 409) {
+          // If payment was already completed, just refresh the data
+          await fetchReservations();
+          return alert('This reservation has already been paid for. The page will now refresh.');
+        }
+        
+        throw new Error(errorMessage);
       }
 
-      // Update the UI to reflect the payment
-      setReservations(prevReservations =>
-        prevReservations.map(reservation => {
-          if (reservation.id === reservationId) {
-            return {
-              ...reservation,
-              status: 'Confirmed',
-              payment: {
-                id: data.data.id,
-                amount: totalAmount,
-                status: 'Completed' as const
-              },
-              ticket: {
-                ...reservation.ticket,
-                status: 'Booked' as const
-              },
-              quantity: quantity
-            };
-          }
-          return reservation;
-        })
-      );
-
+      // Instead of optimistic update, fetch the latest data from the server
+      await fetchReservations();
+      
+      // Show success message
       alert(`Payment of $${totalAmount.toFixed(2)} for ${quantity} ticket(s) was successful!`);
     } catch (error) {
       console.error("Payment error:", error);
+      // Fetch the latest data from the server
+      await fetchReservations();
+      
+      // Show error message
       const errorMessage = error instanceof Error ? error.message : "An unexpected error occurred during payment. Please try again.";
       setError(errorMessage);
       
-      // Update UI to show payment failure
-      setReservations(prevReservations =>
-        prevReservations.map(reservation =>
-          reservation.id === reservationId
-            ? {
-                ...reservation,
-                status: 'Pending',
-                payment: {
-                  ...(reservation.payment || { id: `temp-${Date.now()}`, amount: price * quantity }),
-                  status: 'Failed' as const
-                }
-              }
-            : reservation
-        )
-      );
+      // Show error toast or alert
+      alert(`Payment failed: ${errorMessage}`);
     } finally {
       setLoadingAction(false);
     }
@@ -333,12 +368,12 @@ export default function CustomerReservationsPage() {
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
             {reservations.map((reservation) => {
-              const eventDate = formatEventDate(reservation.ticket.event.date);
-              // Show pay button if reservation is pending or payment is pending/failed
+              const eventDate = reservation?.ticket?.event?.date 
+                ? formatEventDate(reservation.ticket.event.date) 
+                : 'Date not available';
               const needsPayment = reservation.status === ReservationStatus.Pending ||
                 (reservation.payment && reservation.payment.status === PaymentStatus.Failed);
 
-              // Allow cancellation for pending or confirmed reservations that aren't already cancelled
               const canCancel = (reservation.status === ReservationStatus.Pending ||
                 reservation.status === ReservationStatus.Confirmed) &&
                 !loadingAction;
@@ -348,7 +383,7 @@ export default function CustomerReservationsPage() {
                   <CardHeader className="pb-3">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <CardTitle className="text-lg mb-1">{reservation.ticket.event.title}</CardTitle>
+                        <CardTitle className="text-lg mb-1">{reservation?.ticket?.event?.title || 'Event title not available'}</CardTitle>
                         <div className="flex items-center gap-2 mb-2">
                           {getStatusBadge(reservation.status)}
                           {reservation.payment && getPaymentBadge(reservation.payment.status)}
@@ -359,20 +394,28 @@ export default function CustomerReservationsPage() {
 
                   <CardContent className="space-y-4">
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-sm">
-                        <Calendar className="h-4 w-4 text-muted-foreground" />
-                        <span>{eventDate.date}</span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm">
-                        <Clock className="h-4 w-4 text-muted-foreground" />
-                        <span>{eventDate.time}</span>
-                      </div>
+                      {typeof eventDate === 'object' ? (
+                        <>
+                          <div className="flex items-center gap-2 text-sm">
+                            <Calendar className="h-4 w-4 text-muted-foreground" />
+                            <span>{eventDate.date}</span>
+                          </div>
+                          <div className="flex items-center gap-2 text-sm">
+                            <Clock className="h-4 w-4 text-muted-foreground" />
+                            <span>{eventDate.time}</span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">
+                          {eventDate}
+                        </div>
+                      )}
                       <div className="flex items-center justify-between text-sm">
                         <div className="flex items-center gap-2">
                           <Ticket className="h-4 w-4 text-muted-foreground" />
-                          <span>{reservation.quantity} × ${reservation.ticket.price.toFixed(2)}</span>
+                          <span>{reservation.quantity} × ${(reservation.ticket?.price || 0).toFixed(2)}</span>
                         </div>
-                        <span className="font-medium">${(reservation.quantity * reservation.ticket.price).toFixed(2)}</span>
+                        <span className="font-medium">${(reservation.quantity * (reservation.ticket?.price || 0)).toFixed(2)}</span>
                       </div>
                       <div className="text-xs text-muted-foreground">
                         Ticket #: {reservation.ticketNumber}
