@@ -8,6 +8,7 @@ import DashboardLayout from "@/components/dashboard-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent,  CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Calendar, Ticket, DollarSign, UserPlus, CalendarPlus, BarChart } from "lucide-react";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 export default function AdminDashboardPage() {
   const { user, loading: authLoading, isAuthenticated, hasRole } = useAuth();
@@ -78,8 +79,11 @@ export default function AdminDashboardPage() {
   if (authLoading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen-minus-header">
-          <p>Loading...</p>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="mb-4">
+            <LoadingSpinner size="md" />
+          </div>
+          <p className="text-muted-foreground">Loading...</p>
         </div>
       </DashboardLayout>
     );
@@ -88,8 +92,11 @@ export default function AdminDashboardPage() {
   if (!isAuthorized) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen-minus-header">
-          <p>{authLoading ? 'Loading...' : 'Unauthorized'}</p>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="mb-4">
+            <LoadingSpinner size="md" />
+          </div>
+          <p className="text-muted-foreground">{authLoading ? 'Loading...' : 'Unauthorized'}</p>
         </div>
       </DashboardLayout>
     );
@@ -98,8 +105,11 @@ export default function AdminDashboardPage() {
   if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen-minus-header">
-          <p>Loading dashboard...</p>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="mb-4">
+            <LoadingSpinner size="md" />
+          </div>
+          <p className="text-muted-foreground">Loading dashboard...</p>
         </div>
       </DashboardLayout>
     );

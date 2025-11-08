@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/dashboard-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { getBaseUrl } from "@/lib/client-utils";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 interface ReportData {
   totalUsers: number;
@@ -102,6 +103,19 @@ export default function AdminReportsPage() {
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen-minus-header">
           <p>Access denied. Admin privileges required.</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="mb-4">
+            <LoadingSpinner size="md" />
+          </div>
+          <p className="text-muted-foreground">Loading reports...</p>
         </div>
       </DashboardLayout>
     );

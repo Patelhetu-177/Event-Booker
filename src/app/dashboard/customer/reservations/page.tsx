@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, Ticket, AlertCircle, CheckCircle } from "lucide-react";
 import { getBaseUrl } from "@/lib/client-utils";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 interface Reservation {
   id: string;
@@ -285,11 +286,14 @@ export default function CustomerReservationsPage() {
     }
   };
 
-  if (loading || !user || !hasRole([Role.Customer])) {
+  if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen-minus-header">
-          <p>Loading reservations or unauthorized...</p>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="mb-4">
+            <LoadingSpinner size="md" />
+          </div>
+          <p className="text-muted-foreground">Loading reservations...</p>
         </div>
       </DashboardLayout>
     );

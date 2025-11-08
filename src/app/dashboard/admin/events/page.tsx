@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Pencil, Trash2 } from "lucide-react";
 import CreateEventModal from "@/components/CreateEventModal";
 import EditEventModal from "@/components/EditEventModal";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 interface Event {
   id: string;
@@ -121,6 +122,19 @@ export default function AdminEventsPage() {
       <DashboardLayout>
         <div className="flex items-center justify-center min-h-screen-minus-header">
           <p>Access denied. Admin privileges required.</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="mb-4">
+            <LoadingSpinner size="md" />
+          </div>
+          <p className="text-muted-foreground">Loading events...</p>
         </div>
       </DashboardLayout>
     );

@@ -13,9 +13,10 @@ const Role = {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, User,Plus } from "lucide-react";
+import { Calendar, Clock, User, Plus } from "lucide-react";
 import CreateEventModal from "@/components/CreateEventModal";
 import { getBaseUrl } from "@/lib/client-utils";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 interface Event {
   id: string;
@@ -63,7 +64,7 @@ export default function OrganizerEventsPage() {
       
       if (response.ok) {
         const data = await response.json();
-        setEvents(data.data || []); // Changed from data.data?.events || []
+        setEvents(data.data || []); 
         setError(null);
       } else {
         const errorData = await response.json();
@@ -129,11 +130,24 @@ export default function OrganizerEventsPage() {
     };
   };
 
-  if (loading || !user || !hasRole([Role.Admin, Role.Organizer])) {
+  if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen-minus-header">
-          <p>Loading or unauthorized...</p>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="mb-4">
+            <LoadingSpinner size="md" />
+          </div>
+          <p className="text-muted-foreground">Loading events...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (!user || !hasRole([Role.Admin, Role.Organizer])) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[60vh]">
+          <p>Unauthorized access. Please contact an administrator.</p>
         </div>
       </DashboardLayout>
     );

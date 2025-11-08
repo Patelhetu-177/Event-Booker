@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar, Users, Ticket, DollarSign, Plus, Eye } from "lucide-react";
 import CreateEventModal from "@/components/CreateEventModal";
 import { getBaseUrl } from "@/lib/client-utils";
-import { LoadingPage, LoadingSection } from "@/components/ui/loading-spinner";
+import { LoadingPage, LoadingSection, LoadingSpinner } from "@/components/ui/loading-spinner";
 
 interface Event {
   id: string;
@@ -107,6 +107,19 @@ export default function OrganizerDashboardPage() {
       fetchReportData();
     }
   }, [isAuthenticated]);
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="mb-4">
+            <LoadingSpinner size="md" />
+          </div>
+          <p className="text-muted-foreground">Loading dashboard...</p>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   if (authLoading || !isAuthenticated || !hasRole([Role.Admin, Role.Organizer])) {
     return (

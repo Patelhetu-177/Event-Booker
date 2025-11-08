@@ -27,7 +27,7 @@ interface Event {
 }
 
 export default function CustomerEventsPage() {
-  const { user, loading, isAuthenticated, hasRole, accessToken } = useAuth();
+  const { user, loading: authLoading, isAuthenticated, hasRole, accessToken } = useAuth();
   const router = useRouter();
   const [events, setEvents] = useState<Event[]>([]);
   const [filteredEvents, setFilteredEvents] = useState<{
@@ -35,96 +35,176 @@ export default function CustomerEventsPage() {
     upcoming: Event[];
     past: Event[];
   }>({ current: [], upcoming: [], past: [] });
-  const { isLoading, withLoading } = useLoadingToast({
+  const [isPageLoading, setIsPageLoading] = useState(true);
+  
+  const getSafeEvents = useCallback(() => {
+    return Array.isArray(events) ? events : [];
+  }, [events]);
+
+  const { isLoading: isToastLoading, withLoading } = useLoadingToast({
     loadingText: "Loading events...",
     successText: "Events loaded successfully!",
     errorText: "Failed to load events"
   });
   const [isRefreshing, setIsRefreshing] = useState(false);
+    
+  const isLoading = isPageLoading || isToastLoading;
   const [searchTerm, setSearchTerm] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!loading && (!isAuthenticated || !hasRole([Role.Customer]))) {
-      router.push("/login");
-    }
-  }, [loading, isAuthenticated, hasRole, router]);
-
   const fetchEvents = useCallback(async () => {
-    if (!accessToken) return;
-
     try {
-      const data = await withLoading(
-        fetch(`${getBaseUrl()}/api/events`, {
-          headers: {
+      console.log('Fetching events...');
+      const response = await withLoading(
+        fetch('/api/events', {
+          credentials: 'include',
+          headers: accessToken ? {
             'Authorization': `Bearer ${accessToken}`,
-          },
+          } : {}
         })
-          .then(async (response) => {
-            const data = await response.json();
-            if (!response.ok) {
-              throw new Error(data.message || "Failed to fetch events");
-            }
-            return data;
-          })
       );
       
-      if (data) {
-        setEvents(data);
+      if (!response) throw new Error('No response from server');
+
+      console.log('Response status:', response.status);
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = await response.json();
+          console.error('Error response from API:', errorData);
+        } catch (e) {
+          console.error('Failed to parse error response:', e);
+        }
+        throw new Error(errorData?.message || `Failed to fetch events: ${response.statusText}`);
       }
-      return data;
+
+      const data = await response.json();
+      console.log('Fetched events data:', data);
+
+      const eventsArray = Array.isArray(data) ? data : (data.data || []);
+      console.log('Setting events:', eventsArray);
+
+      if (!Array.isArray(eventsArray)) {
+        console.error('Unexpected events format:', eventsArray);
+        throw new Error('Invalid events data format received from server');
+      }
+
+      setEvents(eventsArray);
     } catch (error) {
       console.error("Error in fetchEvents:", error);
-      throw error;
     } finally {
       setIsRefreshing(false);
     }
-  }, [accessToken]);
+  }, [accessToken, withLoading]);
 
   useEffect(() => {
-    const handleRefresh = (e: CustomEvent) => {
-      if (e.detail === 'refresh-events') {
-        setIsRefreshing(true);
-        fetchEvents();
-      }
-    };
+    if (authLoading) return;
+    
+    if (!isAuthenticated || !hasRole([Role.Customer])) {
+      router.push("/login");
+      return;
+    }
+    
+    if (events.length === 0) {
+      fetchEvents().finally(() => setIsPageLoading(false));
+    } else {
+      setIsPageLoading(false);
+    }
+  }, [authLoading, isAuthenticated, hasRole, router, events.length, fetchEvents]);
 
-    (window as Window).addEventListener('refresh-events', handleRefresh as EventListener);
-    return () => {
-      (window as Window).removeEventListener('refresh-events', handleRefresh as EventListener);
-    };
+  const handleRefresh = useCallback(() => {
+    setIsRefreshing(true);
+    fetchEvents().finally(() => setIsRefreshing(false));
   }, [fetchEvents]);
 
   useEffect(() => {
+    const handleRefreshEvent = (e: CustomEvent) => {
+      if (e.detail === 'refresh-events') {
+        handleRefresh();
+      }
+    };
+
+    (window as Window).addEventListener('refresh-events', handleRefreshEvent as EventListener);
+    return () => {
+      (window as Window).removeEventListener('refresh-events', handleRefreshEvent as EventListener);
+    };
+  }, [handleRefresh]);
+
+  useEffect(() => {
+    console.log('useEffect triggered, accessToken:', accessToken ? 'exists' : 'missing');
     if (accessToken) {
-      fetchEvents();
+      console.log('Calling fetchEvents...');
+      fetchEvents()
+        .then(() => console.log('Fetch events completed'))
+        .catch(err => {
+          console.error('Error in fetchEvents:', err);
+          setError(err.message);
+        });
+    } else {
+      console.log('No access token, not fetching events');
     }
   }, [accessToken, fetchEvents]);
 
   const now = new Date();
-  const oneDayInMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+  const oneDayInMs = 24 * 60 * 60 * 1000;
 
   const categorizeEvents = (events: Event[]) => {
+    console.log('Categorizing events:', events);
     const current: Event[] = [];
     const upcoming: Event[] = [];
     const past: Event[] = [];
 
-    events.forEach(event => {
-      const eventDate = new Date(event.date);
-      const timeDiff = eventDate.getTime() - now.getTime();
-      const isToday = eventDate.toDateString() === now.toDateString();
-      const isCurrentEvent = timeDiff <= oneDayInMs && timeDiff >= 0;
+    const now = new Date();
+    const oneDayInMs = 24 * 60 * 60 * 1000;
 
-      if (isToday || isCurrentEvent) {
-        current.push(event);
-      } else if (timeDiff > 0) {
+    // If no events, return empty categories
+    if (!Array.isArray(events) || events.length === 0) {
+      console.log('No events to categorize');
+      return { current, upcoming, past };
+    }
+
+    events.forEach(event => {
+      if (!event || !event.date) {
+        console.warn('Invalid event data:', event);
+        return;
+      }
+
+      try {
+        const eventDate = new Date(event.date);
+        console.log(`Event: ${event.title}, Date: ${eventDate}`);
+
+        // If date is invalid, skip this event
+        if (isNaN(eventDate.getTime())) {
+          console.warn('Invalid date for event:', event);
+          return;
+        }
+
+        const timeDiff = eventDate.getTime() - now.getTime();
+        const isToday = eventDate.toDateString() === now.toDateString();
+        const isCurrentEvent = timeDiff <= oneDayInMs && timeDiff >= 0;
+
+        console.log(`  isToday: ${isToday}, isCurrentEvent: ${isCurrentEvent}, timeDiff: ${timeDiff}ms`);
+
+        // For debugging, let's show all events in upcoming for now
         upcoming.push(event);
-      } else {
-        past.push(event);
+        /*
+        if (isToday || isCurrentEvent) {
+          console.log(`  -> Current event`);
+          current.push(event);
+        } else if (timeDiff > 0) {
+          console.log(`  -> Upcoming event`);
+          upcoming.push(event);
+        } else {
+          console.log(`  -> Past event`);
+          past.push(event);
+        }
+        */
+      } catch (error) {
+        console.error('Error processing event:', error, event);
       }
     });
 
-    // Sort events by date
     const sortByDate = (a: Event, b: Event) =>
       new Date(a.date).getTime() - new Date(b.date).getTime();
 
@@ -136,18 +216,24 @@ export default function CustomerEventsPage() {
   };
 
   useEffect(() => {
-    let filtered = [...events];
+    try {
+      const currentEvents = getSafeEvents();
+      let filtered = [...currentEvents];
 
-    if (searchTerm) {
-      filtered = filtered.filter(event =>
-        event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        event.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        event.organizer.name.toLowerCase().includes(searchTerm.toLowerCase())
-      );
+      if (searchTerm) {
+        filtered = filtered.filter(event =>
+          event?.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          event?.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          event?.organizer?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+      }
+
+      setFilteredEvents(categorizeEvents(filtered));
+    } catch (error) {
+      console.error('Error filtering events:', error);
+      setFilteredEvents({ current: [], upcoming: [], past: [] });
     }
-
-    setFilteredEvents(categorizeEvents(filtered));
-  }, [events, searchTerm]); // Add all dependencies used inside the effect
+  }, [events, searchTerm, getSafeEvents]);
 
   const formatEventDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -219,36 +305,67 @@ export default function CustomerEventsPage() {
   };
 
   const renderEventSection = (title: string, events: Event[]) => {
-    if (events.length === 0) return null;
+    console.log(`Rendering ${title}:`, events);
 
     return (
       <div className="space-y-4">
-        <h2 className="text-2xl font-semibold">{title}</h2>
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {events.map(event => renderEventCard(event))}
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-semibold">{title}</h2>
+          <span className="text-sm text-muted-foreground">
+            {events.length} {events.length === 1 ? 'event' : 'events'}
+          </span>
         </div>
+
+        {events.length === 0 ? (
+          <div className="text-center py-8 border rounded-lg bg-muted/20">
+            <p className="text-muted-foreground">No {title.toLowerCase()} found</p>
+          </div>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            {events.map(event => renderEventCard(event))}
+          </div>
+        )}
+
+
       </div>
     );
   };
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    fetchEvents();
-  };
 
-  if (isLoading && !isRefreshing) {
+  if (isLoading) {
     return (
       <DashboardLayout>
-        <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
-          <p className="text-lg font-medium text-muted-foreground">Loading events...</p>
-          <div className="h-1 w-48 bg-muted rounded-full overflow-hidden">
-            <div className="h-full bg-primary animate-pulse" style={{
-              width: '100%',
-              animationDuration: '2s',
-              animationTimingFunction: 'cubic-bezier(0.4, 0, 0.6, 1)',
-              animationIterationCount: 'infinite'
-            }} />
+        <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-6">
+          <div className="flex flex-col items-center space-y-4">
+            <div className="h-12 w-12 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+            <div className="text-center space-y-1">
+              <p className="text-lg font-medium">Loading Events</p>
+              <p className="text-sm text-muted-foreground">Please wait while we load the latest events...</p>
+            </div>
           </div>
+          {process.env.NODE_ENV === 'development' && (
+            <div className="mt-6 p-4 bg-muted/20 rounded-lg w-full max-w-md">
+              <p className="text-sm font-medium mb-2 text-center">Loading State</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Auth Status:</span>
+                  <span>{authLoading ? 'Checking...' : isAuthenticated ? 'Authenticated' : 'Not Authenticated'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Role:</span>
+                  <span>{user?.role || 'Unknown'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Events Loaded:</span>
+                  <span>{events.length}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Access Token:</span>
+                  <span>{accessToken ? 'Yes' : 'No'}</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </DashboardLayout>
     );
@@ -320,28 +437,10 @@ export default function CustomerEventsPage() {
           {renderEventSection("Upcoming Events", filteredEvents.upcoming)}
           {renderEventSection("Past Events", filteredEvents.past)}
 
-          {isRefreshing ? (
+          {isRefreshing && (
             <div className="flex justify-center py-12">
               <LoadingSpinner size="md" />
             </div>
-          ) : filteredEvents.current.length === 0 &&
-            filteredEvents.upcoming.length === 0 &&
-            filteredEvents.past.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">
-                {searchTerm ? 'No events match your search.' : 'No events available at the moment.'}
-              </p>
-              <Button
-                variant="ghost"
-                className="mt-4"
-                onClick={handleRefresh}
-                disabled={isRefreshing}
-              >
-                {isRefreshing ? 'Refreshing...' : 'Refresh'}
-              </Button>
-            </div>
-          ) : (
-            <></>
           )}
         </div>
       </div>
