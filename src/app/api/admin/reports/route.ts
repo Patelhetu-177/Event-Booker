@@ -5,23 +5,46 @@ import { ForbiddenError, UnauthorizedError } from "@/lib/errors";
 import { Role } from "@prisma/client";
 
 export async function GET(req: NextRequest) {
+  console.log('[/api/admin/reports] Starting request processing');
   try {
     const userRole = req.headers.get("x-user-role");
+    const userId = req.headers.get("x-user-id");
     
-    if (!userRole) {
-      throw new UnauthorizedError("User not authenticated");
+    console.log(`[/api/admin/reports] User ID: ${userId}, Role: ${userRole}`);
+    
+    if (!userRole || !userId) {
+      console.error('[/api/admin/reports] Missing required headers - userRole:', userRole, 'userId:', userId);
+      throw new UnauthorizedError("Authentication required");
     }
 
     if (userRole !== Role.Admin) {
+      console.error('[/api/admin/reports] Forbidden - User is not an admin');
       throw new ForbiddenError("Admin access required");
     }
 
-    const [totalUsers, totalEvents, totalReservations, totalTickets] = await Promise.all([
-      prisma.user.count(),
-      prisma.event.count(),
-      prisma.reservation.count(),
-      prisma.ticket.count(),
-    ]);
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      console.log('[/api/admin/reports] Database connection successful');
+    } catch (dbError) {
+      console.error('[/api/admin/reports] Database connection error:', dbError);
+      throw new Error('Database connection error');
+    }
+
+    let totalUsers, totalEvents, totalReservations, totalTickets;
+    
+    try {
+      [totalUsers, totalEvents, totalReservations, totalTickets] = await Promise.all([
+        prisma.user.count().catch(e => { console.error('Error counting users:', e); return 0; }),
+        prisma.event.count().catch(e => { console.error('Error counting events:', e); return 0; }),
+        prisma.reservation.count().catch(e => { console.error('Error counting reservations:', e); return 0; }),
+        prisma.ticket.count().catch(e => { console.error('Error counting tickets:', e); return 0; }),
+      ]);
+      console.log('[/api/admin/reports] Counts - Users:', totalUsers, 'Events:', totalEvents, 'Reservations:', totalReservations, 'Tickets:', totalTickets);
+    } catch (countError) {
+      console.error('[/api/admin/reports] Error getting counts:', countError);
+      // Set default values if counts fail
+      totalUsers = totalEvents = totalReservations = totalTickets = 0;
+    }
 
     const revenueResult = await prisma.payment.aggregate({
       where: {
@@ -95,29 +118,29 @@ export async function GET(req: NextRequest) {
     });
 
     const recentActivity = [
-      ...recentUsers.map(user => ({
+      ...(recentUsers || []).filter(user => user).map(user => ({
         id: `user-${user.id}`,
         type: "user_registered" as const,
-        description: `New user registered: ${user.name} (${user.email})`,
-        timestamp: user.createdAt.toISOString(),
+        description: `New user registered: ${user.name || 'A user'} (${user.email || 'no email'})`,
+        timestamp: user.createdAt?.toISOString() || new Date().toISOString(),
       })),
-      ...recentEvents.map(event => ({
+      ...(recentEvents || []).filter(event => event).map(event => ({
         id: `event-${event.id}`,
         type: "event_created" as const,
-        description: `New event created: ${event.title} by ${event.organizer.name}`,
-        timestamp: event.createdAt.toISOString(),
+        description: `New event created: ${event.title || 'Untitled Event'} by ${event.organizer?.name || 'an organizer'}`,
+        timestamp: event.createdAt?.toISOString() || new Date().toISOString(),
       })),
-      ...recentReservations.map(reservation => ({
+      ...(recentReservations || []).filter(reservation => reservation).map(reservation => ({
         id: `reservation-${reservation.id}`,
         type: "reservation_made" as const,
         description: `${reservation.user?.name || 'A user'} made a reservation for ${reservation.tickets?.[0]?.Event?.title || 'an event'}`,
-        timestamp: reservation.createdAt.toISOString(),
+        timestamp: reservation.createdAt?.toISOString() || new Date().toISOString(),
       })),
-      ...recentPayments.map(payment => ({
+      ...(recentPayments || []).filter(payment => payment).map(payment => ({
         id: `payment-${payment.id}`,
         type: "payment_completed" as const,
-        description: `Payment completed: $${payment.amount.toFixed(2)} by ${payment.reservation.user.name}`,
-        timestamp: payment.createdAt.toISOString(),
+        description: `Payment completed: $${payment.amount?.toFixed(2) || '0.00'} by ${payment.reservation?.user?.name || 'a user'}`,
+        timestamp: payment.createdAt?.toISOString() || new Date().toISOString(),
       })),
     ]
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -145,22 +168,38 @@ export async function GET(req: NextRequest) {
       }
     });
 
+    // Ensure we have valid numbers
+    const safeTotalUsers = typeof totalUsers === 'number' ? totalUsers : 0;
+    const safeTotalEvents = typeof totalEvents === 'number' ? totalEvents : 0;
+    const safeTotalReservations = typeof totalReservations === 'number' ? totalReservations : 0;
+    const safeTotalTickets = typeof totalTickets === 'number' ? totalTickets : 0;
+    const safeTotalRevenue = typeof totalRevenue === 'number' ? Number(totalRevenue) : 0;
+    
     const reportData = {
-      totalUsers,
-      totalEvents,
-      totalReservations,
-      totalTickets,
-      totalRevenue: Number(totalRevenue),
-      recentActivity,
-      usersByRole: usersByRole.map(item => ({
-        role: item.role,
-        count: item._count.role
-      })),
-      eventsByMonth: eventsByMonth.length
+      totalUsers: safeTotalUsers,
+      totalEvents: safeTotalEvents,
+      totalReservations: safeTotalReservations,
+      totalTickets: safeTotalTickets,
+      totalRevenue: safeTotalRevenue,
+      recentActivity: Array.isArray(recentActivity) ? recentActivity : [],
+      usersByRole: Array.isArray(usersByRole) 
+        ? usersByRole.map(item => ({
+            role: item?.role || 'UNKNOWN',
+            count: item?._count?.role || 0
+          }))
+        : [],
+      eventsByMonth: Array.isArray(eventsByMonth) ? eventsByMonth.length : 0
     };
 
     return successResponse(reportData, "Reports retrieved successfully");
   } catch (error) {
+    console.error('[/api/admin/reports] Error:', error);
+    if (process.env.NODE_ENV === 'production') {
+      // Don't expose internal errors in production
+      return errorResponse(new Error('An error occurred while generating the report'));
+    }
     return errorResponse(error);
+  } finally {
+    console.log('[/api/admin/reports] Request completed');
   }
 }
