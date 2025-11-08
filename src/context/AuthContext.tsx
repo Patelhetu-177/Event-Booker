@@ -144,23 +144,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [refreshAccessToken]);
 
   useEffect(() => {
-    console.log("Route Protection useEffect: isInitialized:", isInitialized, "loading:", loading, "isAuthenticated:", isAuthenticated, "user:", user?.email, "currentPath:", window.location.pathname); // Added log
-    if (!loading && isInitialized) {
-      const currentPath = window.location.pathname;
-      const isProtected = currentPath.startsWith("/dashboard");
-      const isAuthPage = currentPath === "/login" || currentPath === "/register";
+    // Only run on client-side
+    if (typeof window === 'undefined') return;
 
-      if (isAuthenticated && isAuthPage) {
-        console.log("Route Protection: Authenticated on auth page, redirecting to /dashboard"); // Added log
-        router.replace("/dashboard");
-      } else if (!isAuthenticated && isProtected) {
-        console.log("Route Protection: Unauthenticated on protected page, redirecting to /login"); // Added log
-        const loginUrl = new URL("/login", window.location.origin);
-        loginUrl.searchParams.set("redirect", currentPath);
-        router.replace(loginUrl.pathname + loginUrl.search);
+    const handleRouteChange = () => {
+      const currentPath = window.location.pathname;
+      console.log("Route Protection: isInitialized:", isInitialized, "loading:", loading, "isAuthenticated:", isAuthenticated, "user:", user?.email, "currentPath:", currentPath);
+      
+      if (!loading && isInitialized) {
+        const isProtected = currentPath.startsWith("/dashboard");
+        const isAuthPage = currentPath === "/login" || currentPath === "/register";
+
+        if (isAuthenticated && isAuthPage) {
+          console.log("Route Protection: Authenticated on auth page, redirecting to /dashboard");
+          router.replace("/dashboard");
+        } else if (!isAuthenticated && isProtected) {
+          console.log("Route Protection: Unauthenticated on protected page, redirecting to /login");
+          const loginUrl = new URL("/login", window.location.origin);
+          loginUrl.searchParams.set("redirect", currentPath);
+          router.replace(loginUrl.pathname + loginUrl.search);
+        }
       }
-    }
-  }, [isAuthenticated, loading, router, isInitialized, user]); // Added user to dependencies
+    };
+
+    // Initial check
+    handleRouteChange();
+
+    // Set up route change listener
+    window.addEventListener('popstate', handleRouteChange);
+    
+    // Cleanup
+    return () => {
+      window.removeEventListener('popstate', handleRouteChange);
+    };
+  }, [isAuthenticated, loading, router, isInitialized, user]);
 
   const login = async (email: string, password: string): Promise<boolean> => {
     setLoading(true);
