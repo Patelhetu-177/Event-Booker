@@ -3,14 +3,17 @@
 import DashboardLayout from "@/components/dashboard-layout";
 import { useAuth } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { Role } from "@prisma/client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Search, User, Clock, Calendar } from "lucide-react";
+import { Search, User, Clock, Calendar, AlertCircle, RefreshCw } from "lucide-react";
 import { getBaseUrl } from "@/lib/client-utils";
+import { useLoadingToast } from "@/hooks/use-loading-toast";
+import { LoadingButton } from "@/components/ui/loading-button";
 
 interface Event {
   id: string;
@@ -32,8 +35,14 @@ export default function CustomerEventsPage() {
     upcoming: Event[];
     past: Event[];
   }>({ current: [], upcoming: [], past: [] });
-  const [error, setError] = useState<string | null>(null);
+  const { isLoading, withLoading } = useLoadingToast({
+    loadingText: "Loading events...",
+    successText: "Events loaded successfully!",
+    errorText: "Failed to load events"
+  });
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && (!isAuthenticated || !hasRole([Role.Customer]))) {
@@ -41,71 +50,94 @@ export default function CustomerEventsPage() {
     }
   }, [loading, isAuthenticated, hasRole, router]);
 
-  useEffect(() => {
-    const fetchEvents = async () => {
-      if (!accessToken) return;
+  const fetchEvents = useCallback(async () => {
+    if (!accessToken) return;
 
-      try {
-        const response = await fetch(`${getBaseUrl()}/api/events`, {
+    try {
+      const data = await withLoading(
+        fetch(`${getBaseUrl()}/api/events`, {
           headers: {
-            Authorization: `Bearer ${accessToken}`,
+            'Authorization': `Bearer ${accessToken}`,
           },
-        });
-        const data = await response.json();
+        })
+          .then(async (response) => {
+            const data = await response.json();
+            if (!response.ok) {
+              throw new Error(data.message || "Failed to fetch events");
+            }
+            return data;
+          })
+      );
+      
+      if (data) {
+        setEvents(data);
+      }
+      return data;
+    } catch (error) {
+      console.error("Error in fetchEvents:", error);
+      throw error;
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [accessToken]);
 
-        if (!response.ok) {
-          setError(data.message || "Failed to fetch events");
-          return;
-        }
-        setEvents(data.data || []);
-      } catch (err) {
-        console.error("Error fetching events:", err);
-        setError("An unexpected error occurred while fetching events.");
+  useEffect(() => {
+    const handleRefresh = (e: CustomEvent) => {
+      if (e.detail === 'refresh-events') {
+        setIsRefreshing(true);
+        fetchEvents();
       }
     };
 
-    if (isAuthenticated) {
-      fetchEvents();
-    }
-  }, [isAuthenticated, accessToken]);
+    (window as Window).addEventListener('refresh-events', handleRefresh as EventListener);
+    return () => {
+      (window as Window).removeEventListener('refresh-events', handleRefresh as EventListener);
+    };
+  }, [fetchEvents]);
 
   useEffect(() => {
-    const now = new Date();
-    const oneDayInMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
-    
-    const categorizeEvents = (events: Event[]) => {
-      const current: Event[] = [];
-      const upcoming: Event[] = [];
-      const past: Event[] = [];
+    if (accessToken) {
+      fetchEvents();
+    }
+  }, [accessToken, fetchEvents]);
 
-      events.forEach(event => {
-        const eventDate = new Date(event.date);
-        const timeDiff = eventDate.getTime() - now.getTime();
-        const isToday = eventDate.toDateString() === now.toDateString();
-        const isCurrentEvent = timeDiff <= oneDayInMs && timeDiff >= 0;
-        
-        if (isToday || isCurrentEvent) {
-          current.push(event);
-        } else if (timeDiff > 0) {
-          upcoming.push(event);
-        } else {
-          past.push(event);
-        }
-      });
+  const now = new Date();
+  const oneDayInMs = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
 
-      // Sort events by date
-      const sortByDate = (a: Event, b: Event) => 
-        new Date(a.date).getTime() - new Date(b.date).getTime();
-      
-      return {
-        current: current.sort(sortByDate),
-        upcoming: upcoming.sort(sortByDate),
-        past: past.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-      };
+  const categorizeEvents = (events: Event[]) => {
+    const current: Event[] = [];
+    const upcoming: Event[] = [];
+    const past: Event[] = [];
+
+    events.forEach(event => {
+      const eventDate = new Date(event.date);
+      const timeDiff = eventDate.getTime() - now.getTime();
+      const isToday = eventDate.toDateString() === now.toDateString();
+      const isCurrentEvent = timeDiff <= oneDayInMs && timeDiff >= 0;
+
+      if (isToday || isCurrentEvent) {
+        current.push(event);
+      } else if (timeDiff > 0) {
+        upcoming.push(event);
+      } else {
+        past.push(event);
+      }
+    });
+
+    // Sort events by date
+    const sortByDate = (a: Event, b: Event) =>
+      new Date(a.date).getTime() - new Date(b.date).getTime();
+
+    return {
+      current: current.sort(sortByDate),
+      upcoming: upcoming.sort(sortByDate),
+      past: past.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
     };
+  };
 
+  useEffect(() => {
     let filtered = [...events];
-    
+
     if (searchTerm) {
       filtered = filtered.filter(event =>
         event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -115,23 +147,23 @@ export default function CustomerEventsPage() {
     }
 
     setFilteredEvents(categorizeEvents(filtered));
-  }, [events, searchTerm]);
+  }, [events, searchTerm]); // Add all dependencies used inside the effect
 
   const formatEventDate = (dateString: string) => {
     const date = new Date(dateString);
     const now = new Date();
     const isUpcoming = date > now;
-    
+
     return {
-      date: date.toLocaleDateString('en-US', { 
-        weekday: 'long', 
-        year: 'numeric', 
-        month: 'long', 
-        day: 'numeric' 
+      date: date.toLocaleDateString('en-US', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
       }),
-      time: date.toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit' 
+      time: date.toLocaleTimeString('en-US', {
+        hour: '2-digit',
+        minute: '2-digit'
       }),
       isUpcoming
     };
@@ -139,7 +171,7 @@ export default function CustomerEventsPage() {
 
   const renderEventCard = (event: Event) => {
     const eventDate = formatEventDate(event.date);
-    
+
     return (
       <Card key={event.id} className="overflow-hidden hover:shadow-lg transition-shadow h-full">
         <CardHeader className="pb-3">
@@ -161,7 +193,7 @@ export default function CustomerEventsPage() {
             <p className="text-sm text-muted-foreground line-clamp-2">
               {event.description || "No description available"}
             </p>
-            
+
             <div className="space-y-2">
               <div className="flex items-center text-sm">
                 <Calendar className="h-4 w-4 mr-2 text-muted-foreground" />
@@ -173,8 +205,8 @@ export default function CustomerEventsPage() {
               </div>
             </div>
 
-            <Button 
-              className="w-full mt-4" 
+            <Button
+              className="w-full mt-4"
               onClick={() => router.push(`/dashboard/customer/events/${event.id}`)}
               disabled={!eventDate.isUpcoming}
             >
@@ -188,7 +220,7 @@ export default function CustomerEventsPage() {
 
   const renderEventSection = (title: string, events: Event[]) => {
     if (events.length === 0) return null;
-    
+
     return (
       <div className="space-y-4">
         <h2 className="text-2xl font-semibold">{title}</h2>
@@ -199,11 +231,51 @@ export default function CustomerEventsPage() {
     );
   };
 
-  if (loading || !user || !hasRole([Role.Customer])) {
+  const handleRefresh = () => {
+    setIsRefreshing(true);
+    fetchEvents();
+  };
+
+  if (isLoading && !isRefreshing) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen-minus-header">
-          <p>Loading or unauthorized...</p>
+        <div className="flex flex-col items-center justify-center min-h-[400px] space-y-4">
+          <p className="text-lg font-medium text-muted-foreground">Loading events...</p>
+          <div className="h-1 w-48 bg-muted rounded-full overflow-hidden">
+            <div className="h-full bg-primary animate-pulse" style={{
+              width: '100%',
+              animationDuration: '2s',
+              animationTimingFunction: 'cubic-bezier(0.4, 0, 0.6, 1)',
+              animationIterationCount: 'infinite'
+            }} />
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="space-y-6">
+          <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-6">
+            <AlertCircle className="h-12 w-12 text-red-500 mb-4" />
+            <h2 className="text-xl font-semibold mb-2">Error Loading Events</h2>
+            <p className="text-muted-foreground mb-4">{error}</p>
+            <Button onClick={handleRefresh} disabled={isRefreshing}>
+              {isRefreshing ? (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                  Refreshing...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Try Again
+                </>
+              )}
+            </Button>
+          </div>
         </div>
       </DashboardLayout>
     );
@@ -211,27 +283,29 @@ export default function CustomerEventsPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-8">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold">Events</h1>
-            <p className="text-muted-foreground">Browse and book tickets for upcoming events</p>
-          </div>
-          <Button onClick={() => router.push("/dashboard/customer/reservations")}>
-            My Reservations
-          </Button>
-        </div>
-
-        <div className="flex flex-col sm:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Search events..."
-              className="pl-9"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      <div className="space-y-6">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <h1 className="text-3xl font-bold">Available Events</h1>
+          <div className="flex items-center gap-2">
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+              <Input
+                type="text"
+                placeholder="Search events..."
+                className="pl-10 w-full"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <LoadingButton
+              variant="outline"
+              size="icon"
+              onClick={handleRefresh}
+              isLoading={isRefreshing}
+              title="Refresh events"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </LoadingButton>
           </div>
         </div>
 
@@ -245,11 +319,29 @@ export default function CustomerEventsPage() {
           {renderEventSection("Happening Now", filteredEvents.current)}
           {renderEventSection("Upcoming Events", filteredEvents.upcoming)}
           {renderEventSection("Past Events", filteredEvents.past)}
-          
-          {Object.values(filteredEvents).every(arr => arr.length === 0) && searchTerm && (
-            <div className="text-center py-12">
-              <p className="text-muted-foreground">No events found. Try adjusting your search.</p>
+
+          {isRefreshing ? (
+            <div className="flex justify-center py-12">
+              <LoadingSpinner size="md" />
             </div>
+          ) : filteredEvents.current.length === 0 &&
+            filteredEvents.upcoming.length === 0 &&
+            filteredEvents.past.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-muted-foreground">
+                {searchTerm ? 'No events match your search.' : 'No events available at the moment.'}
+              </p>
+              <Button
+                variant="ghost"
+                className="mt-4"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+              >
+                {isRefreshing ? 'Refreshing...' : 'Refresh'}
+              </Button>
+            </div>
+          ) : (
+            <></>
           )}
         </div>
       </div>

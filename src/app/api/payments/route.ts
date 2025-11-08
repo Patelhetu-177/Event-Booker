@@ -5,33 +5,38 @@ import { errorResponse, successResponse } from "@/lib/response";
 import { NotFoundError, UnauthorizedError, ConflictError, ForbiddenError } from "@/lib/errors";
 import { PaymentStatus, ReservationStatus } from "@prisma/client";
 
+const ID_REGEX = /^[a-z0-9_-]{10,}$/i;
+
 const basePaymentSchema = z.object({
   reservationId: z.string().min(1, "Reservation ID is required"),
   amount: z.number().positive("Amount must be a positive number"),
 });
 
 const paymentSchema = basePaymentSchema.refine(
-  (data) => {
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    return uuidRegex.test(data.reservationId);
-  },
+  (data) => ID_REGEX.test(data.reservationId),
   {
-    message: "Invalid reservation ID format",
+    message: "Invalid reservation ID format.",
     path: ["reservationId"]
   }
 );
 
 export async function POST(req: NextRequest) {
   try {
+    console.log('Payment request received:', {
+      url: req.url,
+      method: req.method,
+      headers: Object.fromEntries(req.headers.entries())
+    });
+
     const userId = req.headers.get("x-user-id");
     if (!userId) {
+      console.error('No user ID found in headers');
       throw new UnauthorizedError("User not authenticated");
     }
 
     const body = await req.json();
     console.log('Received payment request:', { body, headers: Object.fromEntries(req.headers.entries()) });
     
-    // First parse with base schema to get the data
     const baseResult = basePaymentSchema.safeParse(body);
     if (!baseResult.success) {
       console.error('Base validation error:', baseResult.error);
@@ -40,9 +45,9 @@ export async function POST(req: NextRequest) {
     
     const { reservationId, amount } = baseResult.data;
     
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(reservationId)) {
-      console.warn('Non-UUID reservation ID detected:', reservationId);
+    if (!ID_REGEX.test(reservationId)) {
+      console.warn('Invalid format for reservation ID:', reservationId);
+      return errorResponse(new Error('Invalid reservation ID format'), 400);
     }
 
     const reservation = await prisma.reservation.findUnique({
@@ -85,7 +90,6 @@ export async function POST(req: NextRequest) {
         },
       }),
       
-      // Update reservation status if payment is successful
       prisma.reservation.update({
         where: { id: reservationId },
         data: {
@@ -98,7 +102,6 @@ export async function POST(req: NextRequest) {
       })
     ]);
 
-    // Update ticket statuses if payment was successful
     if (paymentSuccessful) {
       await prisma.ticket.updateMany({
         where: { reservationId },
@@ -110,6 +113,11 @@ export async function POST(req: NextRequest) {
 
     return successResponse(payment, "Payment processed successfully");
   } catch (error) {
+        console.error('Payment processing error:', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined,
+      timestamp: new Date().toISOString()
+    });
     return errorResponse(error);
   }
 }

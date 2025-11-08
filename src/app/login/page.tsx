@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useAuth } from "@/context/AuthContext";
+import { useLoading } from "@/context/LoadingContext";
+import { Button } from "@/components/ui/button";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 
 const loginSchema = z.object({
   email: z.string().email({ message: "Invalid email address" }),
@@ -22,7 +24,7 @@ export default function LoginPage() {
   const router = useRouter();
   const { login } = useAuth();
   const [error, setError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const { withLoading, isLoading } = useLoading();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -34,19 +36,12 @@ export default function LoginPage() {
 
   const onSubmit = async (values: LoginFormValues) => {
     setError(null);
-    setIsLoading(true);
     
     try {
-      const success = await login(values.email, values.password);
-      
-      if (!success) {
-        setError("Invalid credentials. Please try again.");
-      }
+      await withLoading(login(values.email, values.password));
     } catch (err) {
       console.error("Login error:", err);
-      setError("An unexpected error occurred. Please try again.");
-    } finally {
-      setIsLoading(false);
+      setError("Invalid credentials or an error occurred. Please try again.");
     }
   };
 
@@ -88,7 +83,14 @@ export default function LoginPage() {
               />
               {error && <p className="text-red-500 text-sm">{error}</p>}
               <Button type="submit" className="w-full" disabled={isLoading}>
-                {isLoading ? "Logging in..." : "Login"}
+                {isLoading ? (
+                  <div className="flex items-center gap-2">
+                    <LoadingSpinner size="sm" />
+                    Signing in...
+                  </div>
+                ) : (
+                  'Sign In'
+                )}
               </Button>
             </form>
           </Form>

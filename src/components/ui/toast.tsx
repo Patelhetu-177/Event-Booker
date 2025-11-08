@@ -66,7 +66,27 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const toast = React.useCallback((props: Omit<ToastProps, "id" | "onClose">) => {
     const id = Math.random().toString(36).substring(2, 9)
     setToasts((prev) => [...prev, { ...props, id, onClose: removeToast }])
+    
+    return {
+      id,
+      dismiss: () => removeToast(id)
+    };
   }, [removeToast])
+  
+  // Handle dismiss events
+  React.useEffect(() => {
+    const handleDismiss = (e: CustomEvent) => {
+      const { id } = e.detail;
+      if (id) {
+        removeToast(id);
+      }
+    };
+    
+    window.addEventListener('dismiss-toast', handleDismiss as EventListener);
+    return () => {
+      window.removeEventListener('dismiss-toast', handleDismiss as EventListener);
+    };
+  }, [removeToast]);
 
   return (
     <ToastContext.Provider value={{ toast }}>
@@ -88,18 +108,28 @@ export function useToast() {
   return context
 }
 
-export function toast(props: Omit<ToastProps, "id" | "onClose">) {
-  const id = Math.random().toString(36).substring(2, 9)
+interface ToastReturn {
+  id: string;
+  dismiss: () => void;
+}
+
+export function toast(props: Omit<ToastProps, "id" | "onClose">): ToastReturn {
+  const id = Math.random().toString(36).substring(2, 9);
+  
+  const dismiss = () => {
+    const dismissEvent = new CustomEvent('dismiss-toast', { 
+      detail: { id } 
+    });
+    window.dispatchEvent(dismissEvent);
+  };
+  
   const event = new CustomEvent('show-toast', {
     detail: { id, ...props }
-  })
-  window.dispatchEvent(event)
+  });
+  window.dispatchEvent(event);
   
   return {
     id,
-    dismiss: () => {
-      const dismissEvent = new CustomEvent('dismiss-toast', { detail: { id } })
-      window.dispatchEvent(dismissEvent)
-    }
+    dismiss,
   }
 }

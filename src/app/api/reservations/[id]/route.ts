@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/next-auth";
 import { prisma } from "@/lib/prisma";
-import { verifyToken } from "@/lib/auth-utils";
 import { NextRequest } from 'next/server';
+import { verifyAccessToken } from "@/lib/auth";
 
 export async function DELETE(
   request: NextRequest,
@@ -11,22 +9,26 @@ export async function DELETE(
 ) {
   const { id } = await params;
   try {
-    const session = await getServerSession(authOptions);
-    let userId = session?.user?.id;
-
+    // First try to get user from Authorization header
     const authHeader = request.headers.get('authorization');
-    if (!userId && authHeader) {
-      const token = authHeader.split(' ')[1];
-      const decoded = await verifyToken(token);
-      userId = decoded?.id;
-    }
-
-    if (!userId) {
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return NextResponse.json(
-        { message: "You must be logged in" },
+        { message: "Missing or invalid authorization token" },
         { status: 401 }
       );
     }
+
+    const token = authHeader.split(' ')[1];
+    const decoded = await verifyAccessToken(token);
+    
+    if (!decoded) {
+      return NextResponse.json(
+        { message: "Invalid or expired token" },
+        { status: 401 }
+      );
+    }
+
+    const userId = decoded.userId;
 
     const { quantity } = await request.json().catch(() => ({} as { quantity?: number }));
 
@@ -36,7 +38,7 @@ export async function DELETE(
         include: {
           tickets: {
             include: {
-              Event: true  // Changed from 'event' to 'Event'
+              Event: true
             }
           }
         },

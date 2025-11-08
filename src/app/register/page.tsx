@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useLoading } from "@/context/LoadingContext";
+import { LoadingSpinner } from "@/components/ui/loading-spinner";
 import { z } from "zod";
 import { useForm, SubmitHandler, ControllerRenderProps, Resolver } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -25,6 +27,7 @@ type RegisterFormValues = z.infer<typeof registerSchema>;
 export default function RegisterPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
+  const { withLoading, isLoading } = useLoading();
 
   const form = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema) as Resolver<RegisterFormValues>,
@@ -38,7 +41,7 @@ export default function RegisterPage() {
 
   const onSubmit: SubmitHandler<RegisterFormValues> = async (values) => {
     setError(null);
-    try {
+    await withLoading((async () => {
       const response = await fetch(`${getBaseUrl()}/api/auth/register`, {
         method: "POST",
         headers: {
@@ -46,6 +49,11 @@ export default function RegisterPage() {
         },
         body: JSON.stringify(values),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Registration failed');
+      }
 
       const data = await response.json();
 
@@ -56,10 +64,10 @@ export default function RegisterPage() {
 
       alert("Registration successful! Please log in.");
       router.push("/login");
-    } catch (err) {
-      console.error("Registration error:", err);
-      setError("An unexpected error occurred. Please try again.");
-    }
+    })()).catch((error) => {
+      console.error("Registration error:", error);
+      setError(error.message || "Registration failed. Please try again.");
+    });
   };
 
   return (
@@ -136,8 +144,15 @@ export default function RegisterPage() {
                 )}
               />
               {error && <p className="text-red-500 text-sm">{error}</p>}
-              <Button type="submit" className="w-full">
-                Register
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? (
+                  <div className="flex items-center gap-2">
+                    <LoadingSpinner size="sm" />
+                    Creating account...
+                  </div>
+                ) : (
+                  'Register'
+                )}
               </Button>
             </form>
           </Form>

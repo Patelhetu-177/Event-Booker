@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import DashboardLayout from "@/components/dashboard-layout";
+import { LoadingPage } from "@/components/ui/loading-spinner";
 const Role = {
   Admin: 'Admin',
   Organizer: 'Organizer',
@@ -35,13 +36,7 @@ export default function DashboardPage() {
   }, [loading, isInitialized, isAuthenticated, user, router]);
 
   if (loading || !isInitialized) {
-    return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen-minus-header">
-          <p>Loading dashboard...</p>
-        </div>
-      </DashboardLayout>
-    );
+    return <LoadingPage />;
   }
 
   return (

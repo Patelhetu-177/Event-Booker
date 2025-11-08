@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Calendar, Users, Ticket, DollarSign, Plus, Eye } from "lucide-react";
 import CreateEventModal from "@/components/CreateEventModal";
 import { getBaseUrl } from "@/lib/client-utils";
+import { LoadingPage, LoadingSection } from "@/components/ui/loading-spinner";
 
 interface Event {
   id: string;
@@ -107,12 +108,10 @@ export default function OrganizerDashboardPage() {
     }
   }, [isAuthenticated]);
 
-  if (authLoading || !user || !hasRole([Role.Admin, Role.Organizer])) {
+  if (authLoading || !isAuthenticated || !hasRole([Role.Admin, Role.Organizer])) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen-minus-header">
-          <p>Loading or unauthorized...</p>
-        </div>
+        <LoadingSection />
       </DashboardLayout>
     );
   }
