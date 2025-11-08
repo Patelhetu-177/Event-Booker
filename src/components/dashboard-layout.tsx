@@ -3,10 +3,10 @@
 
 import { ReactNode, useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useAuth } from "@/context/AuthContext";
+import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { useAuth } from "@/context/AuthContext";
 import { Role } from "@prisma/client";
 import { Menu, X, LogOut, Loader2 } from "lucide-react";
 import { LoadingSpinner, LoadingPage } from "@/components/ui/loading-spinner";
@@ -35,22 +35,48 @@ const customerNavItems = [
   { name: "Profile", href: "/dashboard/customer/profile" },
 ];
 
-export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { user, logout, loading } = useAuth();
+function useDashboardNavigation() {
+  const { user, loading, logout } = useAuth();
+  const router = useRouter();
   const pathname = usePathname();
-  const [prevPath, setPrevPath] = useState(pathname);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const isNavigating = useNavigationLoading();
-  const showPageLoading = isNavigating && pathname !== prevPath;
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsMounted(true);
-    }, 100);
-    return () => clearTimeout(timer);
+    setIsMounted(true);
+    return () => setIsMounted(false);
   }, []);
+
+  useEffect(() => {
+    if (!isMounted || loading) return;
+    
+    if (user) {
+      const roleBasePath = user.role.toLowerCase();
+      const targetPath = `/dashboard/${roleBasePath}`;
+      
+      if (!pathname.includes(roleBasePath)) {
+        router.replace(targetPath);
+      }
+    }
+  }, [user, loading, isMounted, pathname, router]);
+
+  return { user, loading, isMounted, isNavigating };
+}
+
+export default function DashboardLayout({ children }: DashboardLayoutProps) {
+  const pathname = usePathname();
+  const { user, loading, isMounted, isNavigating } = useDashboardNavigation();
+  const { logout } = useAuth();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [prevPath, setPrevPath] = useState(pathname);
+  
+  // Track previous path for loading state
+  useEffect(() => {
+    setPrevPath(pathname);
+  }, [pathname]);
+  
+  const showPageLoading = isNavigating && pathname !== prevPath;
 
   if (loading || !isMounted) {
     return <LoadingPage />;
@@ -183,10 +209,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       </div>
     </aside>
   );
-
-  useEffect(() => {
-    setPrevPath(pathname);
-  }, [pathname]);
 
   return (
     <div className="flex h-screen bg-gray-50 relative">
